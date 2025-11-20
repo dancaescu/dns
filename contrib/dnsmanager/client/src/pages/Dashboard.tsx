@@ -84,6 +84,11 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [rrCurrentPage, setRrCurrentPage] = useState(1);
   const rrRecordsPerPage = 10;
   const [editFormData, setEditFormData] = useState<Partial<RrRecord>>({});
+  const [showSoaAddForm, setShowSoaAddForm] = useState(false);
+  const [showAddZoneModal, setShowAddZoneModal] = useState(false);
+  const [newZoneAccountId, setNewZoneAccountId] = useState<number | null>(null);
+  const [newZoneName, setNewZoneName] = useState("");
+  const [newZoneJumpStart, setNewZoneJumpStart] = useState(false);
 
   useEffect(() => {
     refreshSoa();
@@ -307,6 +312,35 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  async function handleSoaCreate(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const payload = Object.fromEntries(formData.entries());
+    try {
+      await apiRequest("/soa", {
+        method: "POST",
+        body: JSON.stringify({
+          origin: payload.origin as string,
+          ns: payload.ns as string,
+          mbox: payload.mbox as string,
+          serial: Number(payload.serial || 1),
+          refresh: Number(payload.refresh || 28800),
+          retry: Number(payload.retry || 7200),
+          expire: Number(payload.expire || 604800),
+          minimum: Number(payload.minimum || 86400),
+          ttl: Number(payload.ttl || 86400),
+          active: (payload.active as string) || "Y",
+        }),
+      });
+      setShowSoaAddForm(false);
+      event.currentTarget.reset();
+      await refreshSoa();
+    } catch (error) {
+      console.error("Failed to create SOA:", error);
+      alert("Failed to create SOA record");
+    }
+  }
+
   async function handleRrCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!rrZoneId) return;
@@ -383,13 +417,49 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
       alert("Name does not match");
       return;
     }
-    await apiRequest(`/rr/${rrToDelete.id}`, { method: "DELETE" });
-    setRrDeleteModalOpen(false);
-    setRrToDelete(null);
-    setRrDeleteConfirm("");
-    refreshRr(rrZoneId);
+    try {
+      await apiRequest(`/rr/${rrToDelete.id}`, { method: "DELETE" });
+      setRrDeleteModalOpen(false);
+      setRrToDelete(null);
+      setRrDeleteConfirm("");
+      await refreshRr(rrZoneId);
+    } catch (error) {
+      console.error("Failed to delete record:", error);
+      alert("Failed to delete record");
+    }
   }
 
+
+  async function handleCreateZone() {
+    if (!newZoneAccountId || !newZoneName) {
+      alert("Please select an account and enter a zone name");
+      return;
+    }
+
+    try {
+      const response = await apiRequest("/cloudflare/zones", {
+        method: "POST",
+        body: JSON.stringify({
+          account_id: newZoneAccountId,
+          zone_name: newZoneName,
+          jump_start: newZoneJumpStart,
+          zone_type: "full",
+        }),
+      });
+
+      if (response.success) {
+        alert(`Zone "${response.name}" created successfully!\n\nName servers:\n${response.name_servers?.join("\n") || "N/A"}`);
+        setShowAddZoneModal(false);
+        setNewZoneAccountId(null);
+        setNewZoneName("");
+        setNewZoneJumpStart(false);
+        loadZones();
+      }
+    } catch (error) {
+      console.error("Failed to create zone:", error);
+      alert("Failed to create zone. Please check the console for details.");
+    }
+  }
 
   async function toggleFavorite(zone: CloudflareZone) {
     const nextFavorite = !Boolean(zone.favorite);
@@ -464,7 +534,124 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                       onChange={(e) => setSoaSearch(e.target.value)}
                     />
                   </div>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => {
+                      setShowSoaAddForm(!showSoaAddForm);
+                      setEditingSoaId(null);
+                    }}
+                  >
+                    {showSoaAddForm ? "Close add panel" : "Add record"}
+                  </Button>
                 </div>
+
+                {showSoaAddForm && (
+                  <form className="space-y-4 rounded-md border bg-white p-6" onSubmit={handleSoaCreate}>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                      <div>
+                        <Label htmlFor="soa-origin" className="text-sm font-medium">Origin *</Label>
+                        <Input
+                          id="soa-origin"
+                          name="origin"
+                          placeholder="example.com"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="soa-ns" className="text-sm font-medium">NS *</Label>
+                        <Input
+                          id="soa-ns"
+                          name="ns"
+                          placeholder="ns1.example.com"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="soa-mbox" className="text-sm font-medium">Mbox *</Label>
+                        <Input
+                          id="soa-mbox"
+                          name="mbox"
+                          placeholder="admin.example.com"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
+                      <div>
+                        <Label htmlFor="soa-serial" className="text-sm font-medium">Serial</Label>
+                        <Input
+                          id="soa-serial"
+                          name="serial"
+                          type="number"
+                          defaultValue={1}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="soa-refresh" className="text-sm font-medium">Refresh</Label>
+                        <Input
+                          id="soa-refresh"
+                          name="refresh"
+                          type="number"
+                          defaultValue={28800}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="soa-retry" className="text-sm font-medium">Retry</Label>
+                        <Input
+                          id="soa-retry"
+                          name="retry"
+                          type="number"
+                          defaultValue={7200}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="soa-expire" className="text-sm font-medium">Expire</Label>
+                        <Input
+                          id="soa-expire"
+                          name="expire"
+                          type="number"
+                          defaultValue={604800}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="soa-minimum" className="text-sm font-medium">Minimum</Label>
+                        <Input
+                          id="soa-minimum"
+                          name="minimum"
+                          type="number"
+                          defaultValue={86400}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="soa-ttl" className="text-sm font-medium">TTL</Label>
+                        <Input
+                          id="soa-ttl"
+                          name="ttl"
+                          type="number"
+                          defaultValue={86400}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div>
+                        <Label htmlFor="soa-active" className="text-sm font-medium">Active</Label>
+                        <select
+                          id="soa-active"
+                          name="active"
+                          className="ml-2 rounded-md border px-3 py-1 text-sm"
+                          defaultValue="Y"
+                        >
+                          <option value="Y">Yes</option>
+                          <option value="N">No</option>
+                        </select>
+                      </div>
+                      <Button type="submit" className="ml-auto">
+                        Create SOA Record
+                      </Button>
+                    </div>
+                  </form>
+                )}
 
                 <div className="rounded-md border">
                   <Table>
@@ -693,9 +880,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         value={rrZoneId ?? ""}
                         onChange={(e) => setRrZoneId(Number(e.target.value))}
                       >
-                        <option value="" disabled>
-                          Select zone
-                        </option>
                         {rrZoneOptions}
                       </select>
                     </div>
@@ -1007,14 +1191,80 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         onChange={(e) => setZoneSearch(e.target.value)}
                       />
                     </div>
-                    <div className="flex items-end">
+                    <div className="flex items-end gap-2">
                       <Button variant="ghost" onClick={() => { setAccountSearch(""); setZoneSearch(""); }}>
                         Clear filters
+                      </Button>
+                      <Button variant="default" onClick={() => setShowAddZoneModal(true)}>
+                        Add Zone
                       </Button>
                     </div>
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Add Zone Modal */}
+              {showAddZoneModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                  <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
+                    <h2 className="mb-4 text-lg font-semibold">Add New Zone</h2>
+                    <div className="space-y-4">
+                      <div>
+                        <Label htmlFor="new-zone-account">Account *</Label>
+                        <select
+                          id="new-zone-account"
+                          className="mt-1 w-full rounded-md border px-3 py-2"
+                          value={newZoneAccountId || ""}
+                          onChange={(e) => setNewZoneAccountId(Number(e.target.value))}
+                        >
+                          <option value="">Select account</option>
+                          {cfAccounts.map((account) => (
+                            <option key={account.id} value={account.id}>
+                              {account.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="new-zone-name">Zone Name (Domain) *</Label>
+                        <Input
+                          id="new-zone-name"
+                          placeholder="example.com"
+                          value={newZoneName}
+                          onChange={(e) => setNewZoneName(e.target.value)}
+                          className="mt-1"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="new-zone-jumpstart"
+                          checked={newZoneJumpStart}
+                          onChange={(e) => setNewZoneJumpStart(e.target.checked)}
+                          className="rounded"
+                        />
+                        <Label htmlFor="new-zone-jumpstart" className="cursor-pointer">
+                          Scan for existing DNS records
+                        </Label>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-4">
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setShowAddZoneModal(false);
+                            setNewZoneAccountId(null);
+                            setNewZoneName("");
+                            setNewZoneJumpStart(false);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button onClick={handleCreateZone}>Create Zone</Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="rounded border bg-white px-4 py-3 text-sm text-muted-foreground">
                 Click any View button to open the zone editor page in this window.
               </div>

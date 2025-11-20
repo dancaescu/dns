@@ -10,6 +10,7 @@ import {
   cloudflareUpdateLoadBalancer,
   cloudflareDeleteLoadBalancer,
   cloudflareGetPoolHealth,
+  cloudflareCreateZone,
   syncZone,
 } from "../cloudflare.js";
 
@@ -21,6 +22,79 @@ router.get("/accounts", async (_req, res) => {
     "SELECT id, cf_account_id, name, created_at, updated_at FROM cloudflare_accounts ORDER BY name ASC",
   );
   res.json(rows);
+});
+
+const createZoneSchema = z.object({
+  account_id: z.number(),
+  zone_name: z.string().min(1),
+  jump_start: z.boolean().default(false),
+  zone_type: z.enum(["full", "partial"]).default("full"),
+});
+
+router.post("/zones", async (req, res) => {
+  const parsed = createZoneSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid request", issues: parsed.error.issues });
+  }
+
+  try {
+    // Get the Cloudflare account ID
+    const [accounts] = await query<{ cf_account_id: string }>(
+      "SELECT cf_account_id FROM cloudflare_accounts WHERE id = ?",
+      [parsed.data.account_id]
+    );
+
+    if (accounts.length === 0) {
+      return res.status(404).json({ message: "Account not found" });
+    }
+
+    const cfAccountId = accounts[0].cf_account_id;
+
+    // Create zone in Cloudflare
+    const response = await cloudflareCreateZone(
+      cfAccountId,
+      parsed.data.zone_name,
+      parsed.data.jump_start,
+      parsed.data.zone_type
+    );
+
+    if (!response.success || !response.result) {
+      return res.status(500).json({
+        message: "Failed to create zone in Cloudflare",
+        errors: response.errors || [],
+      });
+    }
+
+    const cfZone = response.result;
+
+    // Save zone to database
+    const result = await execute(
+      `INSERT INTO cloudflare_zones
+       (account_id, cf_zone_id, name, status, paused, zone_type, plan_name, last_synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        parsed.data.account_id,
+        cfZone.id,
+        cfZone.name,
+        cfZone.status,
+        cfZone.paused ? 1 : 0,
+        cfZone.type || null,
+        cfZone.plan?.name || null,
+      ]
+    );
+
+    res.status(201).json({
+      success: true,
+      zone_id: result.insertId,
+      cf_zone_id: cfZone.id,
+      name: cfZone.name,
+      status: cfZone.status,
+      name_servers: cfZone.name_servers,
+    });
+  } catch (error) {
+    console.error("Create zone error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
 });
 
 router.get("/zones/:id", async (req, res) => {

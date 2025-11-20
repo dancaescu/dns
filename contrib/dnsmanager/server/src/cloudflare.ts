@@ -314,3 +314,25 @@ export async function cloudflareGetPoolHealth(cfAccountId: string, cfPoolId: str
 export async function cloudflareListPools(cfAccountId: string) {
   return cfRequest("GET", `/accounts/${cfAccountId}/load_balancers/pools`);
 }
+
+/**
+ * Create a new zone in Cloudflare
+ * @param cfAccountId - Cloudflare account ID
+ * @param zoneName - Domain name for the zone
+ * @param jumpStart - Whether to scan for existing DNS records
+ * @param type - Zone type (full or partial)
+ */
+export async function cloudflareCreateZone(
+  cfAccountId: string,
+  zoneName: string,
+  jumpStart = false,
+  type: "full" | "partial" = "full"
+) {
+  const payload = {
+    name: zoneName,
+    account: { id: cfAccountId },
+    jump_start: jumpStart,
+    type: type,
+  };
+  return cfRequest("POST", "/zones", payload);
+}
