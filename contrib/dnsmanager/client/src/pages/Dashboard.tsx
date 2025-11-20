@@ -69,6 +69,13 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [expandedAccounts, setExpandedAccounts] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [rrSearch, setRrSearch] = useState("");
+  const [showRrAddForm, setShowRrAddForm] = useState(false);
+  const [editingRrId, setEditingRrId] = useState<number | null>(null);
+  const [editingRrData, setEditingRrData] = useState<RrRecord | null>(null);
+  const [rrDeleteModalOpen, setRrDeleteModalOpen] = useState(false);
+  const [rrToDelete, setRrToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [rrDeleteConfirm, setRrDeleteConfirm] = useState("");
 
   useEffect(() => {
     refreshSoa();
@@ -122,6 +129,17 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
       )),
     [soaRecords],
   );
+
+  const filteredRrRecords = useMemo(() => {
+    if (!rrSearch) return rrRecords;
+    const lower = rrSearch.toLowerCase();
+    return rrRecords.filter(
+      (rr) =>
+        rr.name.toLowerCase().includes(lower) ||
+        rr.type.toLowerCase().includes(lower) ||
+        rr.data.toLowerCase().includes(lower)
+    );
+  }, [rrRecords, rrSearch]);
 
   async function refreshSoa() {
     const data = await apiRequest<SoaRecord[]>("/soa");
@@ -217,6 +235,58 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
       }),
     });
     event.currentTarget.reset();
+    setShowRrAddForm(false);
+    refreshRr(rrZoneId);
+  }
+
+  async function handleRrUpdate(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingRrId || !rrZoneId) return;
+    const formData = new FormData(event.currentTarget);
+    const payload = Object.fromEntries(formData.entries());
+    await apiRequest(`/rr/${editingRrId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        zone: rrZoneId,
+        name: payload.name,
+        type: payload.type,
+        data: payload.data,
+        aux: Number(payload.aux || 0),
+        ttl: Number(payload.ttl || 86400),
+      }),
+    });
+    setEditingRrId(null);
+    setEditingRrData(null);
+    refreshRr(rrZoneId);
+  }
+
+  function startEditRr(rr: RrRecord) {
+    setEditingRrId(rr.id);
+    setEditingRrData(rr);
+    setShowRrAddForm(false);
+  }
+
+  function cancelEditRr() {
+    setEditingRrId(null);
+    setEditingRrData(null);
+  }
+
+  function openRrDeleteModal(rr: RrRecord) {
+    setRrToDelete({ id: rr.id, name: rr.name });
+    setRrDeleteModalOpen(true);
+    setRrDeleteConfirm("");
+  }
+
+  async function confirmDeleteRr() {
+    if (!rrToDelete || !rrZoneId) return;
+    if (rrDeleteConfirm !== rrToDelete.name) {
+      alert("Name does not match");
+      return;
+    }
+    await apiRequest(`/rr/${rrToDelete.id}`, { method: "DELETE" });
+    setRrDeleteModalOpen(false);
+    setRrToDelete(null);
+    setRrDeleteConfirm("");
     refreshRr(rrZoneId);
   }
 
@@ -357,18 +427,18 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             </div>
           </TabsContent>
           <TabsContent value="rr">
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>New RR</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form className="space-y-3" onSubmit={handleRrCreate}>
-                    <div>
-                      <Label htmlFor="rr-zone">Zone</Label>
+            <Card>
+              <CardHeader>
+                <CardTitle>Resource Records</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-4">
+                    <div className="w-64">
+                      <Label htmlFor="rr-zone-select" className="sr-only">Zone</Label>
                       <select
-                        id="rr-zone"
-                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        id="rr-zone-select"
+                        className="w-full rounded-md border px-3 py-2 text-sm"
                         value={rrZoneId ?? ""}
                         onChange={(e) => setRrZoneId(Number(e.target.value))}
                       >
@@ -378,64 +448,246 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         {rrZoneOptions}
                       </select>
                     </div>
-                    <div>
-                      <Label htmlFor="rr-name">Name</Label>
-                      <Input id="rr-name" name="name" required />
+                    <div className="w-64">
+                      <Label htmlFor="rr-search" className="sr-only">Search</Label>
+                      <Input
+                        id="rr-search"
+                        placeholder="Filter by name, type, or content"
+                        value={rrSearch}
+                        onChange={(e) => setRrSearch(e.target.value)}
+                      />
                     </div>
-                    <div>
-                      <Label htmlFor="rr-type">Type</Label>
-                      <select id="rr-type" name="type" className="mt-1 w-full rounded-md border px-3 py-2 text-sm">
-                        {["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SRV", "PTR", "RP", "NAPTR", "HINFO"].map((type) => (
-                          <option key={type}>{type}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <Label htmlFor="rr-data">Content</Label>
-                      <Input id="rr-data" name="data" required />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
+                  </div>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setShowRrAddForm(!showRrAddForm)}
+                    disabled={!rrZoneId}
+                  >
+                    {showRrAddForm ? "Close add panel" : "Add record"}
+                  </Button>
+                </div>
+
+                {showRrAddForm && (
+                  <form className="space-y-4 rounded-md border bg-white p-6" onSubmit={handleRrCreate}>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                       <div>
-                        <Label htmlFor="rr-aux">Aux</Label>
-                        <Input id="rr-aux" name="aux" type="number" defaultValue={0} />
+                        <Label htmlFor="rr-type" className="text-sm font-medium">Type</Label>
+                        <select
+                          id="rr-type"
+                          name="type"
+                          className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                          required
+                        >
+                          {["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SRV", "PTR", "RP", "NAPTR", "HINFO"].map((type) => (
+                            <option key={type}>{type}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
-                        <Label htmlFor="rr-ttl">TTL</Label>
-                        <Input id="rr-ttl" name="ttl" type="number" defaultValue={86400} />
+                        <Label htmlFor="rr-name" className="text-sm font-medium">Name</Label>
+                        <Input id="rr-name" name="name" className="mt-1" required />
+                      </div>
+                      <div className="md:col-span-2">
+                        <Label htmlFor="rr-data" className="text-sm font-medium">Content</Label>
+                        <Input id="rr-data" name="data" className="mt-1" required />
                       </div>
                     </div>
-                    <Button type="submit" disabled={!rrZoneId}>
-                      Add record
-                    </Button>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                      <div>
+                        <Label htmlFor="rr-aux" className="text-sm font-medium">Aux/Priority</Label>
+                        <Input id="rr-aux" name="aux" type="number" defaultValue={0} className="mt-1" />
+                      </div>
+                      <div>
+                        <Label htmlFor="rr-ttl" className="text-sm font-medium">TTL</Label>
+                        <Input id="rr-ttl" name="ttl" type="number" defaultValue={86400} className="mt-1" />
+                      </div>
+                      <div className="flex items-end md:col-span-2">
+                        <Button type="submit" className="w-full">
+                          Add record
+                        </Button>
+                      </div>
+                    </div>
                   </form>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Records</CardTitle>
-                </CardHeader>
-                <CardContent className="max-h-[420px] overflow-auto">
+                )}
+
+                <div className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Name</TableHead>
                         <TableHead>Type</TableHead>
+                        <TableHead>Name</TableHead>
                         <TableHead>Content</TableHead>
+                        <TableHead>Aux</TableHead>
+                        <TableHead>TTL</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {rrRecords.map((rr) => (
-                        <TableRow key={rr.id}>
-                          <TableCell>{rr.name}</TableCell>
-                          <TableCell>{rr.type}</TableCell>
-                          <TableCell className="max-w-[240px] truncate">{rr.data}</TableCell>
+                      {filteredRrRecords.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
+                            {rrZoneId ? "No records found" : "Select a zone to view records"}
+                          </TableCell>
                         </TableRow>
-                      ))}
+                      ) : (
+                        filteredRrRecords.map((rr) => (
+                          <TableRow key={rr.id} className="hover:bg-muted/50">
+                            {editingRrId === rr.id && editingRrData ? (
+                              <>
+                                <TableCell>
+                                  <form id={`edit-rr-${rr.id}`} onSubmit={handleRrUpdate} className="contents">
+                                    <select
+                                      name="type"
+                                      defaultValue={editingRrData.type}
+                                      className="w-full rounded border px-2 py-1 text-sm"
+                                    >
+                                      {["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SRV", "PTR", "RP", "NAPTR", "HINFO"].map((type) => (
+                                        <option key={type}>{type}</option>
+                                      ))}
+                                    </select>
+                                  </form>
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    form={`edit-rr-${rr.id}`}
+                                    name="name"
+                                    defaultValue={editingRrData.name}
+                                    className="text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    form={`edit-rr-${rr.id}`}
+                                    name="data"
+                                    defaultValue={editingRrData.data}
+                                    className="text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    form={`edit-rr-${rr.id}`}
+                                    name="aux"
+                                    type="number"
+                                    defaultValue={editingRrData.aux}
+                                    className="w-20 text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    form={`edit-rr-${rr.id}`}
+                                    name="ttl"
+                                    type="number"
+                                    defaultValue={editingRrData.ttl}
+                                    className="w-24 text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      type="submit"
+                                      form={`edit-rr-${rr.id}`}
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-green-600 hover:text-green-700"
+                                    >
+                                      Save
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={cancelEditRr}
+                                      className="text-gray-600 hover:text-gray-700"
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </>
+                            ) : (
+                              <>
+                                <TableCell className="font-mono text-sm">{rr.type}</TableCell>
+                                <TableCell className="font-medium">{rr.name}</TableCell>
+                                <TableCell className="max-w-md truncate">{rr.data}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{rr.aux}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{rr.ttl}</TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => startEditRr(rr)}
+                                      className="text-blue-600 hover:text-blue-700"
+                                    >
+                                      Edit
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => openRrDeleteModal(rr)}
+                                      className="text-red-600 hover:text-red-700"
+                                    >
+                                      Delete
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </>
+                            )}
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
-                </CardContent>
-              </Card>
-            </div>
+                </div>
+
+                {filteredRrRecords.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Showing {filteredRrRecords.length} of {rrRecords.length} records
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Delete confirmation modal */}
+            {rrDeleteModalOpen && rrToDelete && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+                  <h3 className="mb-4 text-lg font-semibold">Delete Resource Record</h3>
+                  <p className="mb-4 text-sm text-gray-600">
+                    Are you sure you want to delete this record? This action cannot be undone.
+                  </p>
+                  <div className="mb-4">
+                    <p className="mb-2 text-sm font-medium">
+                      Type <span className="font-mono font-bold">{rrToDelete.name}</span> to confirm:
+                    </p>
+                    <Input
+                      value={rrDeleteConfirm}
+                      onChange={(e) => setRrDeleteConfirm(e.target.value)}
+                      placeholder="Type record name to confirm"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setRrDeleteModalOpen(false);
+                        setRrToDelete(null);
+                        setRrDeleteConfirm("");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={confirmDeleteRr}
+                      disabled={rrDeleteConfirm !== rrToDelete.name}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </TabsContent>
           <TabsContent value="cloudflare">
             <div className="space-y-4">
