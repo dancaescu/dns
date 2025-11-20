@@ -1,0 +1,21 @@
+MyDNS Debian packaging notes
+===========================
+
+Configuration files live in /etc/mydns/ (e.g. mydns.conf or
+mydns.cloudflare.conf). The init scripts expect /run/mydns/mydns.pid.
+If you need SQL failover, populate db-host2..db-host4 and set the
+db-host-policy in the config before enabling the service.
+
+To install the SysV init script:
+  sudo install -m 755 debian/mydns.init /etc/init.d/mydns
+  sudo update-rc.d mydns defaults
+
+To install the systemd unit:
+  sudo install -m 644 debian/mydns.service /lib/systemd/system/
+  sudo systemctl enable mydns
+  sudo systemctl start mydns
+
+Monitoring:
+  The contrib/check_mydns.py script runs NRPE/Icinga-style checks against
+  the configured db-hosts and the local daemon. Copy it into your NRPE
+  plugins directory and point it at /etc/mydns/mydns.conf.

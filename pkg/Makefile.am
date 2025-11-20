@@ -1,0 +1,3 @@
+SUBDIRS = redhat
+
+EXTRA_DIST = README

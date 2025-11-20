@@ -1,0 +1,7 @@
+mydns (1.2.8.33-1) unstable; urgency=medium
+
+  * Initial Debian packaging for the mydns-oj fork.
+  * Install both systemd and SysV init units plus sample configs.
+  * Wire pkg/debian/build-deb.sh to dpkg-buildpackage.
+
+ -- Dan Caescu <dan.caescu@multitel.net>  Wed, 19 Nov 2025 13:10:59 +0000

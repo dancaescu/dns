@@ -1,0 +1,7 @@
+Packaging helpers are split by platform:
+
+  * redhat/   – legacy RPM spec files and automake glue (moved from the old pkg/ root).
+  * debian/   – Debian helpers and scripts.
+
+See redhat/README for details on building RPMs.  The debian directory now
+contains a simple build script that wraps dpkg-buildpackage.

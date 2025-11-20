@@ -1,0 +1,47 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          mydns
+# Required-Start:    $network
+# Required-Stop:     $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start the MyDNS authoritative server
+### END INIT INFO
+
+DAEMON=/usr/sbin/mydns
+CONFIG=/etc/mydns/mydns.conf
+PIDFILE=/run/mydns/mydns.pid
+DESC="MyDNS authoritative server"
+
+. /lib/lsb/init-functions
+
+start() {
+    mkdir -p /run/mydns
+    start-stop-daemon --start --quiet --pidfile "$PIDFILE" --exec "$DAEMON" -- \
+        --background --conf "$CONFIG"
+}
+
+stop() {
+    start-stop-daemon --stop --quiet --pidfile "$PIDFILE" --retry TERM/30/KILL/5
+}
+
+case "$1" in
+  start)
+    log_daemon_msg "Starting $DESC" "mydns"
+    start && log_end_msg 0 || log_end_msg 1
+    ;;
+  stop)
+    log_daemon_msg "Stopping $DESC" "mydns"
+    stop && log_end_msg 0 || log_end_msg 1
+    ;;
+  restart|force-reload)
+    $0 stop && $0 start
+    ;;
+  status)
+    status_of_proc "$DAEMON" "mydns"
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|force-reload|status}"
+    exit 1
+    ;;
+esac

@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DESTDIR =
+
+%:
+	dh $@ --parallel
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		--prefix=/usr \
+		--sbindir=/usr/sbin \
+		--sysconfdir=/etc/mydns \
+		--with-mysql-lib=/usr/lib/$(DEB_HOST_MULTIARCH) \
+		--with-mysql-include=/usr/include/mysql \
+		--with-zlib=/usr/lib/$(DEB_HOST_MULTIARCH)
+
+override_dh_auto_install:
+	dh_auto_install --destdir=$(CURDIR)/debian/mydns
+
+override_dh_auto_test:
+	# upstream has no automated test suite

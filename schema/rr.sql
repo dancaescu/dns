@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `rr` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `sys_userid` int NOT NULL,
+  `sys_groupid` int NOT NULL,
+  `sys_perm_user` varchar(5) NOT NULL,
+  `sys_perm_group` varchar(5) NOT NULL,
+  `sys_perm_other` varchar(5) NOT NULL,
+  `zone` int unsigned NOT NULL,
+  `name` char(64) NOT NULL,
+  `type` enum('A','AAAA','CNAME','HINFO','MX','NAPTR','NS','PTR','RP','SRV','TXT') DEFAULT NULL,
+  `data` char(128) NOT NULL,
+  `aux` int unsigned NOT NULL,
+  `ttl` int unsigned NOT NULL DEFAULT '86400',
+  `user_id` int DEFAULT '0',
+  `version` int DEFAULT '1',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rr` (`zone`,`name`,`type`,`data`),
+  KEY `name` (`name`(15)),
+  KEY `data` (`data`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

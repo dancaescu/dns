@@ -1,0 +1,13 @@
+[Unit]
+Description=MyDNS authoritative server
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/sbin/mydns --background --conf /etc/mydns/mydns.conf
+PIDFile=/run/mydns/mydns.pid
+RuntimeDirectory=mydns
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,42 @@
+##
+##  $Id: TODO,v 1.67 2005/04/28 18:02:43 bboy Exp $
+##
+
+SHORT TERM:
+
+*	Add full checks for SRV, PTR, RP, and NAPTR to 'mydnscheck'. [Done: added strict validators for SRV owner/data, PTR targets, RP mailboxes, and full NAPTR field parsing in mydnscheck – Dan Caescu <dan.caescu@multitel.net>, 19-Nov-2025]
+
+*  	Reply cache should obey shortest TTL in the cached RRSET. [Done via updated insert logic – Dan Caescu <dan.caescu@multitel.net>, 19-Nov-2025]
+
+
+
+LONG TERM:
+
+*	Move SRV/RP/NAPTR extra data OUT of the mydns_rr structure -- leave the
+	data in the "data" column and let it be parsed as needed.  The parsed
+	data really gobbles up space in the MYDNS_RR structure. [Done: canonicalise the data column and parse on demand – Dan Caescu <dan.caescu@multitel.net>, 19-Nov-2025]
+
+*	Full IPv6 support (added to server, need support in utils). [Done: importer now uses IPv4/IPv6 sockets - Dan Caescu <dan.caescu@multitel.net>, 18-Nov-2025]
+
+*	Update manual:
+	- How delegation works.
+
+*	LOC (RFC 1876) support. [Done: MyDNS now parses textual LOC data and emits RFC 1876 wire format. Dan Caescu <dan.caescu@multitel.net>, 19-Nov-2025]
+
+*	Make sure we're NEVER using inet_ntoa, inet_addr, etc.  [Audit complete; only inet_ntop/inet_pton remain. Dan Caescu <dan.caescu@multitel.net>, 18-Nov-2025]
+
+*	Fix in_cidr to work with IPv6 addresses. [Done via in_cidr_match(), legacy wrapper retained. Dan Caescu <dan.caescu@multitel.net>, 18-Nov-2025]
+
+*	Test AXFR from an IPv6 master via `mydns-import'. [Done against a loopback MyDNS instance listening on [::1]+5400. Dan Caescu <dan.caescu@multitel.net>, 18-Nov-2025]
+
+*	Investigate linker problem with `-ffast-math' on FreeBSD/alpha:
+
+		/usr/lib/crtfastmath.o: In function `set_fast_math':
+		/usr/lib/crtfastmath.o(.text+0x1c): undefined reference to
+			`__ieee_set_fp_control'
+
+*	No calls to gethostbyname() anywhere -- add `--enable-static-build'
+	back to the `./configure' line in pkg/mydns-mysql.spec.in. [Both RPMs now pass --enable-static-build. Dan Caescu <dan.caescu@multitel.net>, 18-Nov-2025]
+
+
+## vi:set ts=3:

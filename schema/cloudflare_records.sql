@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS `cloudflare_records` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `zone_id` int NOT NULL,
+  `cf_record_id` varchar(64) NOT NULL,
+  `record_type` varchar(16) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `content` text NOT NULL,
+  `ttl` int DEFAULT NULL,
+  `proxied` tinyint(1) DEFAULT NULL,
+  `priority` int DEFAULT NULL,
+  `data` longtext,
+  `modified_on` datetime DEFAULT NULL,
+  `comment` varchar(500) DEFAULT NULL,
+  `tags` varchar(500) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_zone_record` (`zone_id`,`cf_record_id`),
+  KEY `idx_zone_name_type` (`zone_id`,`name`(191),`record_type`),
+  CONSTRAINT `fk_cf_records_zone` FOREIGN KEY (`zone_id`) REFERENCES `cloudflare_zones` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

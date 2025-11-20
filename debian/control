@@ -1,0 +1,22 @@
+Source: mydns
+Section: net
+Priority: optional
+Maintainer: Dan Caescu <dan.caescu@multitel.net>
+Build-Depends:
+ debhelper-compat (= 13),
+ pkg-config,
+ libmysqlclient-dev,
+ zlib1g-dev,
+ texinfo
+Standards-Version: 4.7.0
+Homepage: https://github.com/dancaescu/mydns-oj
+Rules-Requires-Root: no
+
+Package: mydns
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, adduser, lsb-base (>= 4.1)
+Description: SQL-backed authoritative DNS server with Cloudflare mirroring
+ MyDNS serves authoritative DNS zones directly from MySQL databases. This
+ fork adds Cloudflare zone mirroring, IPv6-aware utilities, reply-cache
+ fixes, and multi-host database failover while keeping the daemon simple
+ and fast.
