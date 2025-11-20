@@ -739,10 +739,11 @@ router.get("/pools/:poolId/health", async (req, res) => {
   try {
     // Get pool with cf_pool_id and account info
     const [pools] = await query<{ cf_pool_id: string; cf_account_id: string }>(
-      `SELECT p.cf_pool_id, z.cf_account_id
+      `SELECT p.cf_pool_id, a.cf_account_id
        FROM cloudflare_lb_pools p
        JOIN cloudflare_load_balancers lb ON lb.id = p.lb_id
        JOIN cloudflare_zones z ON z.id = lb.zone_id
+       JOIN cloudflare_accounts a ON a.id = z.account_id
        WHERE p.id = ?`,
       [poolId]
     );
@@ -782,10 +783,11 @@ router.get("/load-balancers/:lbId/pools/health", async (req, res) => {
   try {
     // Get all pools for this load balancer with account info
     const [pools] = await query<{ id: number; cf_pool_id: string; name: string; cf_account_id: string }>(
-      `SELECT p.id, p.cf_pool_id, p.name, z.cf_account_id
+      `SELECT p.id, p.cf_pool_id, p.name, a.cf_account_id
        FROM cloudflare_lb_pools p
        JOIN cloudflare_load_balancers lb ON lb.id = p.lb_id
        JOIN cloudflare_zones z ON z.id = lb.zone_id
+       JOIN cloudflare_accounts a ON a.id = z.account_id
        WHERE p.lb_id = ?`,
       [lbId]
     );
