@@ -1,4 +1,7 @@
 all:
 	@echo "pkg/: packaging helpers only"
 
-.PHONY: all
+clean:
+	@echo "pkg/: nothing to clean"
+
+.PHONY: all clean

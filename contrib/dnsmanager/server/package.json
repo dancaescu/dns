@@ -18,6 +18,7 @@
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.9.1",
     "node-fetch": "^3.3.2",
+    "nodemailer": "^6.9.7",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -26,6 +27,7 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.12.7",
     "@types/node-fetch": "^3.0.2",
+    "@types/nodemailer": "^6.4.14",
     "tsx": "^4.7.2",
     "typescript": "^5.4.5"
   }
