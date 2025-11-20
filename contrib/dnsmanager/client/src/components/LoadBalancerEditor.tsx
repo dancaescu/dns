@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { toast } from "./ui/toast";
 import { PoolNotificationSettings, PoolNotificationConfig } from "./PoolNotificationSettings";
+import { HealthStatusBadge, OriginHealthBadge } from "./HealthStatusBadge";
+import { getLoadBalancerPoolsHealth } from "../lib/api";
 
 export type LBPool = {
   id?: number;
@@ -82,6 +84,47 @@ export function LoadBalancerEditor({
     session_affinity_ttl: loadBalancer?.session_affinity_ttl || 82800,
     pools: (loadBalancer?.pools || []) as LBPool[],
   });
+
+  const [healthData, setHealthData] = useState<any>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+
+  // Fetch health data for existing load balancer
+  useEffect(() => {
+    if (!isOpen || !loadBalancer?.id) {
+      setHealthData(null);
+      return;
+    }
+
+    const fetchHealth = async () => {
+      setHealthLoading(true);
+      try {
+        const data = await getLoadBalancerPoolsHealth(loadBalancer.id);
+        setHealthData(data.result || []);
+      } catch (error) {
+        console.error("Failed to fetch health data:", error);
+      } finally {
+        setHealthLoading(false);
+      }
+    };
+
+    fetchHealth();
+
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchHealth, 30000);
+    return () => clearInterval(interval);
+  }, [isOpen, loadBalancer?.id]);
+
+  const getPoolHealth = (poolId?: number) => {
+    if (!healthData || !poolId) return null;
+    return healthData.find((h: any) => h.pool_id === poolId);
+  };
+
+  const getOriginHealth = (poolId: number | undefined, originName: string) => {
+    const poolHealth = getPoolHealth(poolId);
+    if (!poolHealth?.origins) return null;
+    const origin = poolHealth.origins.find((o: any) => o.name === originName);
+    return origin?.healthy ?? null;
+  };
 
   if (!isOpen) return null;
 
@@ -291,6 +334,12 @@ export function LoadBalancerEditor({
                       <span className="text-sm text-gray-500">
                         ({pool.origins.length} origins)
                       </span>
+                      {pool.id && (
+                        <HealthStatusBadge
+                          healthy={getPoolHealth(pool.id)?.healthy ?? null}
+                          size="sm"
+                        />
+                      )}
                     </button>
                     <div className="flex items-center gap-2">
                       <label className="flex items-center gap-1 text-sm">
@@ -406,89 +455,98 @@ export function LoadBalancerEditor({
                           </Button>
                         </div>
 
-                        {pool.origins.map((origin, originIndex) => (
-                          <div key={originIndex} className="grid grid-cols-12 gap-2 mb-2 items-end">
-                            <div className="col-span-3">
-                              <Label className="text-xs">Endpoint Name</Label>
-                              <Input
-                                value={origin.name}
-                                onChange={(e) =>
-                                  updateOrigin(poolIndex, originIndex, { name: e.target.value })
-                                }
-                                placeholder="nyc3.multitel.net"
-                                className="text-sm"
-                              />
-                            </div>
-                            <div className="col-span-3">
-                              <Label className="text-xs">Endpoint Address</Label>
-                              <Input
-                                value={origin.address}
-                                onChange={(e) =>
-                                  updateOrigin(poolIndex, originIndex, { address: e.target.value })
-                                }
-                                placeholder="nyc3.multitel.net"
-                                className="text-sm"
-                              />
-                            </div>
-                            <div className="col-span-1">
-                              <Label className="text-xs">Port</Label>
-                              <Input
-                                type="number"
-                                value={origin.port || ""}
-                                onChange={(e) =>
-                                  updateOrigin(poolIndex, originIndex, {
-                                    port: e.target.value ? parseInt(e.target.value) : undefined,
-                                  })
-                                }
-                                className="text-sm"
-                              />
-                            </div>
-                            <div className="col-span-1">
-                              <Label className="text-xs">Weight</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={origin.weight}
-                                onChange={(e) =>
-                                  updateOrigin(poolIndex, originIndex, {
-                                    weight: parseFloat(e.target.value),
-                                  })
-                                }
-                                className="text-sm"
-                              />
-                            </div>
-                            <div className="col-span-1">
-                              <Label className="text-xs">Percent</Label>
-                              <div className="px-3 py-2 text-sm text-gray-600">
-                                {calculatePercent(origin.weight, totalWeight)}%
+                        {pool.origins.map((origin, originIndex) => {
+                          const originHealth = getOriginHealth(pool.id, origin.name);
+                          return (
+                            <div key={originIndex} className="grid grid-cols-12 gap-2 mb-2 items-end">
+                              <div className="col-span-2">
+                                <Label className="text-xs">Endpoint Name</Label>
+                                <Input
+                                  value={origin.name}
+                                  onChange={(e) =>
+                                    updateOrigin(poolIndex, originIndex, { name: e.target.value })
+                                  }
+                                  placeholder="nyc3.multitel.net"
+                                  className="text-sm"
+                                />
                               </div>
-                            </div>
-                            <div className="col-span-1 flex items-center justify-center">
-                              <label className="flex items-center gap-1">
-                                <input
-                                  type="checkbox"
-                                  checked={origin.enabled}
+                              <div className="col-span-2">
+                                <Label className="text-xs">Endpoint Address</Label>
+                                <Input
+                                  value={origin.address}
+                                  onChange={(e) =>
+                                    updateOrigin(poolIndex, originIndex, { address: e.target.value })
+                                  }
+                                  placeholder="nyc3.multitel.net"
+                                  className="text-sm"
+                                />
+                              </div>
+                              <div className="col-span-1">
+                                <Label className="text-xs">Port</Label>
+                                <Input
+                                  type="number"
+                                  value={origin.port || ""}
                                   onChange={(e) =>
                                     updateOrigin(poolIndex, originIndex, {
-                                      enabled: e.target.checked,
+                                      port: e.target.value ? parseInt(e.target.value) : undefined,
                                     })
                                   }
+                                  className="text-sm"
                                 />
-                                <span className="text-xs">On</span>
-                              </label>
+                              </div>
+                              <div className="col-span-1">
+                                <Label className="text-xs">Weight</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={origin.weight}
+                                  onChange={(e) =>
+                                    updateOrigin(poolIndex, originIndex, {
+                                      weight: parseFloat(e.target.value),
+                                    })
+                                  }
+                                  className="text-sm"
+                                />
+                              </div>
+                              <div className="col-span-1">
+                                <Label className="text-xs">Percent</Label>
+                                <div className="px-3 py-2 text-sm text-gray-600">
+                                  {calculatePercent(origin.weight, totalWeight)}%
+                                </div>
+                              </div>
+                              <div className="col-span-2">
+                                <Label className="text-xs">Health</Label>
+                                <div className="py-1">
+                                  <HealthStatusBadge healthy={originHealth} size="sm" />
+                                </div>
+                              </div>
+                              <div className="col-span-1 flex items-center justify-center">
+                                <label className="flex items-center gap-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={origin.enabled}
+                                    onChange={(e) =>
+                                      updateOrigin(poolIndex, originIndex, {
+                                        enabled: e.target.checked,
+                                      })
+                                    }
+                                  />
+                                  <span className="text-xs">On</span>
+                                </label>
+                              </div>
+                              <div className="col-span-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => removeOrigin(poolIndex, originIndex)}
+                                  className="w-full text-xs"
+                                >
+                                  Remove
+                                </Button>
+                              </div>
                             </div>
-                            <div className="col-span-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => removeOrigin(poolIndex, originIndex)}
-                                className="w-full text-xs"
-                              >
-                                Remove
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}

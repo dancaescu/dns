@@ -306,3 +306,11 @@ export async function cloudflareDeleteLoadBalancer(localZoneId: number, cfLbId: 
   const zone = await fetchZoneRow(localZoneId);
   return cfRequest("DELETE", `/zones/${zone.cf_zone_id}/load_balancers/${cfLbId}`);
 }
+
+export async function cloudflareGetPoolHealth(cfAccountId: string, cfPoolId: string) {
+  return cfRequest("GET", `/accounts/${cfAccountId}/load_balancers/pools/${cfPoolId}/health`);
+}
+
+export async function cloudflareListPools(cfAccountId: string) {
+  return cfRequest("GET", `/accounts/${cfAccountId}/load_balancers/pools`);
+}

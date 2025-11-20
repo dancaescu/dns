@@ -9,6 +9,7 @@ import {
   cloudflareCreateLoadBalancer,
   cloudflareUpdateLoadBalancer,
   cloudflareDeleteLoadBalancer,
+  cloudflareGetPoolHealth,
   syncZone,
 } from "../cloudflare.js";
 
@@ -720,6 +721,106 @@ router.delete("/origins/:originId", async (req, res) => {
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ message: error instanceof Error ? error.message : "Failed to delete origin" });
+  }
+});
+
+// Health monitoring routes
+router.get("/pools/:poolId/health", async (req, res) => {
+  const poolId = Number(req.params.poolId);
+  if (!Number.isInteger(poolId)) {
+    return res.status(400).json({ message: "Invalid pool id" });
+  }
+
+  try {
+    // Get pool with cf_pool_id and account info
+    const [pools] = await query<{ cf_pool_id: string; cf_account_id: string }>(
+      `SELECT p.cf_pool_id, z.cf_account_id
+       FROM cloudflare_lb_pools p
+       JOIN cloudflare_load_balancers lb ON lb.id = p.lb_id
+       JOIN cloudflare_zones z ON z.id = lb.zone_id
+       WHERE p.id = ?`,
+      [poolId]
+    );
+
+    if (!pools.length) {
+      return res.status(404).json({ message: "Pool not found" });
+    }
+
+    const pool = pools[0];
+
+    // Check if this is an offline pool
+    if (!pool.cf_pool_id || pool.cf_pool_id.startsWith("offline-")) {
+      return res.json({
+        success: true,
+        result: {
+          pool_id: pool.cf_pool_id,
+          healthy: null,
+          origins: [],
+        }
+      });
+    }
+
+    // Fetch health from Cloudflare
+    const healthData = await cloudflareGetPoolHealth(pool.cf_account_id, pool.cf_pool_id);
+    res.json(healthData);
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : "Failed to fetch pool health" });
+  }
+});
+
+router.get("/load-balancers/:lbId/pools/health", async (req, res) => {
+  const lbId = Number(req.params.lbId);
+  if (!Number.isInteger(lbId)) {
+    return res.status(400).json({ message: "Invalid load balancer id" });
+  }
+
+  try {
+    // Get all pools for this load balancer with account info
+    const [pools] = await query<{ id: number; cf_pool_id: string; name: string; cf_account_id: string }>(
+      `SELECT p.id, p.cf_pool_id, p.name, z.cf_account_id
+       FROM cloudflare_lb_pools p
+       JOIN cloudflare_load_balancers lb ON lb.id = p.lb_id
+       JOIN cloudflare_zones z ON z.id = lb.zone_id
+       WHERE p.lb_id = ?`,
+      [lbId]
+    );
+
+    const healthResults = await Promise.all(
+      pools.map(async (pool) => {
+        try {
+          // Skip offline pools
+          if (!pool.cf_pool_id || pool.cf_pool_id.startsWith("offline-")) {
+            return {
+              pool_id: pool.id,
+              cf_pool_id: pool.cf_pool_id,
+              name: pool.name,
+              healthy: null,
+              origins: [],
+            };
+          }
+
+          const healthData = await cloudflareGetPoolHealth(pool.cf_account_id, pool.cf_pool_id);
+          return {
+            pool_id: pool.id,
+            cf_pool_id: pool.cf_pool_id,
+            name: pool.name,
+            ...healthData.result,
+          };
+        } catch (error) {
+          return {
+            pool_id: pool.id,
+            cf_pool_id: pool.cf_pool_id,
+            name: pool.name,
+            healthy: null,
+            error: error instanceof Error ? error.message : "Failed to fetch health",
+          };
+        }
+      })
+    );
+
+    res.json({ success: true, result: healthResults });
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : "Failed to fetch pools health" });
   }
 });
 

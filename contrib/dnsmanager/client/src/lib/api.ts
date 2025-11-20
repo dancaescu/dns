@@ -164,3 +164,12 @@ export function deleteOrigin(originId: number) {
     method: "DELETE",
   });
 }
+
+// Health monitoring API functions
+export function getPoolHealth<T = any>(poolId: number) {
+  return apiRequest<T>(`/cloudflare/pools/${poolId}/health`);
+}
+
+export function getLoadBalancerPoolsHealth<T = any>(lbId: number) {
+  return apiRequest<T>(`/cloudflare/load-balancers/${lbId}/pools/health`);
+}
