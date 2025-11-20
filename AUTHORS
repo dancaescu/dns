@@ -15,6 +15,15 @@ Authors of MyDNS:
      Some bug fixes.
      Add wildcard recursion facility.
 
+  Dan Caescu <dan.caescu@multitel.net>
+     Current maintainer (2025-present).
+     Cloudflare mirror integration and dual-zone serving.
+     Multi-host MySQL failover with configurable policies.
+     IPv6 support in AXFR importer and DNS utilities.
+     LOC record (RFC 1876) implementation.
+     Debian packaging modernization and systemd support.
+     Reply cache TTL fixes and build system improvements.
+
 Code contributions (in alphabetical order):
 
   Joost Yervante Damad  <Joost.Damad@siemens.com>
@@ -38,7 +47,7 @@ Beta testing, bug reports, debugging help, etc.:
   Arnaud de Bermingham  <duracell@apinc.org>
      Beta testing, debugging help.
 
-  Hélios de Creisquer  <helios@balios.org>
+  Hï¿½lios de Creisquer  <helios@balios.org>
      Debian GNU/Linux support.
 
   Simon Dick  <simon@advantage-interactive.com>
@@ -62,7 +71,7 @@ Native language support:
   Helios de Creisquer  <helios@balios.org>
      French.
 
-  José Luis Domingo López  <jdomingo@24x7linux.com>
+  Josï¿½ Luis Domingo Lï¿½pez  <jdomingo@24x7linux.com>
      Spanish.
 
 
