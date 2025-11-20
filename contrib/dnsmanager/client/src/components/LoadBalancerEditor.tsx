@@ -90,6 +90,17 @@ export function LoadBalancerEditor({
     if (loadBalancer) {
       console.log("LoadBalancerEditor received loadBalancer:", loadBalancer);
       console.log("Pools in loadBalancer:", loadBalancer?.pools);
+
+      // Normalize pool data - ensure weights are numbers
+      const normalizedPools = (loadBalancer.pools || []).map((pool: any) => ({
+        ...pool,
+        origins: (pool.origins || []).map((origin: any) => ({
+          ...origin,
+          weight: typeof origin.weight === 'number' ? origin.weight : parseFloat(origin.weight) || 1,
+          port: origin.port ? (typeof origin.port === 'number' ? origin.port : parseInt(origin.port)) : undefined,
+        })),
+      }));
+
       setForm({
         name: loadBalancer.name || "",
         proxied: loadBalancer.proxied ?? true,
@@ -98,7 +109,7 @@ export function LoadBalancerEditor({
         steering_policy: loadBalancer.steering_policy || "random",
         session_affinity: loadBalancer.session_affinity || "none",
         session_affinity_ttl: loadBalancer.session_affinity_ttl || 82800,
-        pools: (loadBalancer.pools || []) as LBPool[],
+        pools: normalizedPools as LBPool[],
       });
     }
   }, [loadBalancer]);
@@ -484,7 +495,7 @@ export function LoadBalancerEditor({
                                   onChange={(e) =>
                                     updateOrigin(poolIndex, originIndex, { name: e.target.value })
                                   }
-                                  placeholder="nyc3.multitel.net"
+                                  placeholder={`server1.${zoneName}`}
                                   className="text-sm"
                                 />
                               </div>
@@ -495,7 +506,7 @@ export function LoadBalancerEditor({
                                   onChange={(e) =>
                                     updateOrigin(poolIndex, originIndex, { address: e.target.value })
                                   }
-                                  placeholder="nyc3.multitel.net"
+                                  placeholder={`server1.${zoneName}`}
                                   className="text-sm"
                                 />
                               </div>

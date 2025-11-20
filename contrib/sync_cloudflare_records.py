@@ -495,13 +495,21 @@ def upsert_pool(cursor, lb_id: int, pool: Dict) -> int:
     )
     existing = cursor.fetchone()
 
+    # Check if notifications are enabled (Cloudflare uses notification_filter)
+    notification_enabled = 0
+    notification_filter = pool.get("notification_filter")
+    if notification_filter and isinstance(notification_filter, dict):
+        if "pool" in notification_filter:
+            notification_enabled = 1
+
     if existing:
         # Update existing pool
         cursor.execute(
             """UPDATE cloudflare_lb_pools SET
                 name = %s, description = %s, enabled = %s, minimum_origins = %s,
                 monitor = %s, health_check_regions = %s, latitude = %s, longitude = %s,
-                origin_steering_policy = %s, updated_at = NOW()
+                origin_steering_policy = %s, notification_email = %s, notification_enabled = %s,
+                updated_at = NOW()
                WHERE id = %s""",
             (
                 pool.get("name"),
@@ -513,6 +521,8 @@ def upsert_pool(cursor, lb_id: int, pool: Dict) -> int:
                 pool.get("latitude"),
                 pool.get("longitude"),
                 pool.get("origin_steering", {}).get("policy", "random"),
+                pool.get("notification_email"),
+                notification_enabled,
                 existing[0]
             )
         )
@@ -522,8 +532,9 @@ def upsert_pool(cursor, lb_id: int, pool: Dict) -> int:
         cursor.execute(
             """INSERT INTO cloudflare_lb_pools
                 (lb_id, cf_pool_id, name, description, enabled, minimum_origins, monitor,
-                 health_check_regions, latitude, longitude, origin_steering_policy)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                 health_check_regions, latitude, longitude, origin_steering_policy,
+                 notification_email, notification_enabled)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 lb_id,
                 pool.get("id"),
@@ -535,7 +546,9 @@ def upsert_pool(cursor, lb_id: int, pool: Dict) -> int:
                 json.dumps(pool.get("check_regions")) if pool.get("check_regions") else None,
                 pool.get("latitude"),
                 pool.get("longitude"),
-                pool.get("origin_steering", {}).get("policy", "random")
+                pool.get("origin_steering", {}).get("policy", "random"),
+                pool.get("notification_email"),
+                notification_enabled
             )
         )
         return cursor.lastrowid

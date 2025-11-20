@@ -156,11 +156,19 @@ def sync_pools_for_zone(zone_id):
                                 """, (lb_id, cf_pool_id))
                                 existing = cursor.fetchone()
 
+                                # Check if notifications are enabled (Cloudflare uses notification_filter)
+                                notification_enabled = 0
+                                notification_filter = pool_data.get("notification_filter")
+                                if notification_filter and isinstance(notification_filter, dict):
+                                    if "pool" in notification_filter:
+                                        notification_enabled = 1
+
                                 if existing:
                                     cursor.execute("""
                                         UPDATE cloudflare_lb_pools SET
                                             name = %s, description = %s, enabled = %s, minimum_origins = %s,
-                                            monitor = %s, origin_steering_policy = %s, updated_at = NOW()
+                                            monitor = %s, origin_steering_policy = %s,
+                                            notification_email = %s, notification_enabled = %s, updated_at = NOW()
                                         WHERE id = %s
                                     """, (
                                         pool_data.get("name"),
@@ -169,14 +177,17 @@ def sync_pools_for_zone(zone_id):
                                         pool_data.get("minimum_origins", 1),
                                         pool_data.get("monitor"),
                                         pool_data.get("origin_steering", {}).get("policy", "random"),
+                                        pool_data.get("notification_email"),
+                                        notification_enabled,
                                         existing[0]
                                     ))
                                     pool_db_id = existing[0]
                                 else:
                                     cursor.execute("""
                                         INSERT INTO cloudflare_lb_pools
-                                        (lb_id, cf_pool_id, name, description, enabled, minimum_origins, monitor, origin_steering_policy)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                        (lb_id, cf_pool_id, name, description, enabled, minimum_origins, monitor,
+                                         origin_steering_policy, notification_email, notification_enabled)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     """, (
                                         lb_id,
                                         cf_pool_id,
@@ -185,7 +196,9 @@ def sync_pools_for_zone(zone_id):
                                         1 if pool_data.get("enabled", True) else 0,
                                         pool_data.get("minimum_origins", 1),
                                         pool_data.get("monitor"),
-                                        pool_data.get("origin_steering", {}).get("policy", "random")
+                                        pool_data.get("origin_steering", {}).get("policy", "random"),
+                                        pool_data.get("notification_email"),
+                                        notification_enabled
                                     ))
                                     pool_db_id = cursor.lastrowid
 
