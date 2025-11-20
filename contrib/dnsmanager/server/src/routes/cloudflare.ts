@@ -768,7 +768,41 @@ router.get("/pools/:poolId/health", async (req, res) => {
 
     // Fetch health from Cloudflare
     const healthData = await cloudflareGetPoolHealth(pool.cf_account_id, pool.cf_pool_id);
-    res.json(healthData);
+    const cfHealth = healthData.result;
+
+    // Parse pop_health to extract overall health and origin details
+    let overallHealthy = null;
+    let origins: any[] = [];
+
+    if (cfHealth?.pop_health) {
+      const regions = Object.values(cfHealth.pop_health) as any[];
+      if (regions.length > 0) {
+        const firstRegion = regions[0];
+        overallHealthy = firstRegion.healthy ?? null;
+
+        if (Array.isArray(firstRegion.origins)) {
+          origins = firstRegion.origins.map((originObj: any) => {
+            const originName = Object.keys(originObj)[0];
+            const originData = originObj[originName];
+            return {
+              name: originName,
+              healthy: originData.healthy ?? null,
+              rtt: originData.rtt,
+              failure_reason: originData.failure_reason,
+            };
+          });
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      result: {
+        pool_id: pool.cf_pool_id,
+        healthy: overallHealthy,
+        origins: origins,
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: error instanceof Error ? error.message : "Failed to fetch pool health" });
   }
@@ -807,11 +841,41 @@ router.get("/load-balancers/:lbId/pools/health", async (req, res) => {
           }
 
           const healthData = await cloudflareGetPoolHealth(pool.cf_account_id, pool.cf_pool_id);
+          const cfHealth = healthData.result;
+
+          // Parse pop_health to extract overall health and origin details
+          let overallHealthy = null;
+          let origins: any[] = [];
+
+          if (cfHealth?.pop_health) {
+            // Get health from first region (usually all regions have same health)
+            const regions = Object.values(cfHealth.pop_health) as any[];
+            if (regions.length > 0) {
+              const firstRegion = regions[0];
+              overallHealthy = firstRegion.healthy ?? null;
+
+              // Extract origin health - each origin is an object with origin name as key
+              if (Array.isArray(firstRegion.origins)) {
+                origins = firstRegion.origins.map((originObj: any) => {
+                  const originName = Object.keys(originObj)[0];
+                  const originData = originObj[originName];
+                  return {
+                    name: originName,
+                    healthy: originData.healthy ?? null,
+                    rtt: originData.rtt,
+                    failure_reason: originData.failure_reason,
+                  };
+                });
+              }
+            }
+          }
+
           return {
             pool_id: pool.id,
             cf_pool_id: pool.cf_pool_id,
             name: pool.name,
-            ...healthData.result,
+            healthy: overallHealthy,
+            origins: origins,
           };
         } catch (error) {
           return {
@@ -819,6 +883,7 @@ router.get("/load-balancers/:lbId/pools/health", async (req, res) => {
             cf_pool_id: pool.cf_pool_id,
             name: pool.name,
             healthy: null,
+            origins: [],
             error: error instanceof Error ? error.message : "Failed to fetch health",
           };
         }
