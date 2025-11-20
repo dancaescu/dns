@@ -85,10 +85,22 @@ export function LoadBalancerEditor({
     pools: (loadBalancer?.pools || []) as LBPool[],
   });
 
-  // Debug: Log when loadBalancer changes
+  // Update form when loadBalancer changes (especially when pools are loaded)
   useEffect(() => {
-    console.log("LoadBalancerEditor received loadBalancer:", loadBalancer);
-    console.log("Pools in loadBalancer:", loadBalancer?.pools);
+    if (loadBalancer) {
+      console.log("LoadBalancerEditor received loadBalancer:", loadBalancer);
+      console.log("Pools in loadBalancer:", loadBalancer?.pools);
+      setForm({
+        name: loadBalancer.name || "",
+        proxied: loadBalancer.proxied ?? true,
+        enabled: loadBalancer.enabled ?? true,
+        ttl: loadBalancer.ttl || 30,
+        steering_policy: loadBalancer.steering_policy || "random",
+        session_affinity: loadBalancer.session_affinity || "none",
+        session_affinity_ttl: loadBalancer.session_affinity_ttl || 82800,
+        pools: (loadBalancer.pools || []) as LBPool[],
+      });
+    }
   }, [loadBalancer]);
 
   const [healthData, setHealthData] = useState<any>(null);
