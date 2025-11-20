@@ -58,6 +58,11 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   const [soaRecords, setSoaRecords] = useState<SoaRecord[]>([]);
   const [selectedSoa, setSelectedSoa] = useState<SoaRecord | null>(null);
+  const [soaSearch, setSoaSearch] = useState("");
+  const [editingSoaId, setEditingSoaId] = useState<number | null>(null);
+  const [editSoaData, setEditSoaData] = useState<Partial<SoaRecord>>({});
+  const [soaCurrentPage, setSoaCurrentPage] = useState(1);
+  const soaRecordsPerPage = 10;
   const [rrRecords, setRrRecords] = useState<RrRecord[]>([]);
   const [rrZoneId, setRrZoneId] = useState<number | null>(null);
   const [cfAccounts, setCfAccounts] = useState<CloudflareAccount[]>([]);
@@ -103,6 +108,9 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     setRrCurrentPage(1);
   }, [rrSearch]);
 
+  useEffect(() => {
+    setSoaCurrentPage(1);
+  }, [soaSearch]);
 
   useEffect(() => {
     if (!accountSearch) {
@@ -127,6 +135,25 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
       });
     }
   }, [selectedAccountId]);
+
+  const filteredSoaRecords = useMemo(() => {
+    if (!soaSearch) return soaRecords;
+    const lower = soaSearch.toLowerCase();
+    return soaRecords.filter(
+      (soa) =>
+        soa.origin.toLowerCase().includes(lower) ||
+        soa.ns.toLowerCase().includes(lower) ||
+        soa.mbox.toLowerCase().includes(lower)
+    );
+  }, [soaRecords, soaSearch]);
+
+  const paginatedSoaRecords = useMemo(() => {
+    const startIndex = (soaCurrentPage - 1) * soaRecordsPerPage;
+    const endIndex = startIndex + soaRecordsPerPage;
+    return filteredSoaRecords.slice(startIndex, endIndex);
+  }, [filteredSoaRecords, soaCurrentPage, soaRecordsPerPage]);
+
+  const soaTotalPages = Math.ceil(filteredSoaRecords.length / soaRecordsPerPage);
 
   const rrZoneOptions = useMemo(
     () =>
@@ -231,6 +258,52 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
       setMessage(err instanceof Error ? err.message : "Update failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function startEditSoa(soa: SoaRecord) {
+    setEditingSoaId(soa.id);
+    setEditSoaData({
+      ns: soa.ns,
+      mbox: soa.mbox,
+      serial: soa.serial,
+      refresh: soa.refresh,
+      retry: soa.retry,
+      expire: soa.expire,
+      minimum: soa.minimum,
+      ttl: soa.ttl,
+      active: soa.active,
+    });
+  }
+
+  function cancelEditSoa() {
+    setEditingSoaId(null);
+    setEditSoaData({});
+  }
+
+  async function handleSoaUpdate() {
+    if (!editingSoaId) return;
+    try {
+      await apiRequest(`/soa/${editingSoaId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          ns: editSoaData.ns,
+          mbox: editSoaData.mbox,
+          serial: Number(editSoaData.serial),
+          refresh: Number(editSoaData.refresh),
+          retry: Number(editSoaData.retry),
+          expire: Number(editSoaData.expire),
+          minimum: Number(editSoaData.minimum),
+          ttl: Number(editSoaData.ttl),
+          active: editSoaData.active,
+        }),
+      });
+      setEditingSoaId(null);
+      setEditSoaData({});
+      await refreshSoa();
+    } catch (error) {
+      console.error("Failed to update SOA:", error);
+      alert("Failed to update SOA record");
     }
   }
 
@@ -376,82 +449,233 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             <TabsTrigger value="cloudflare">Cloudflare Mirror</TabsTrigger>
           </TabsList>
           <TabsContent value="soa">
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Edit SOA</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {selectedSoa ? (
-                    <form key={selectedSoa.id} className="space-y-3" onSubmit={handleSoaSubmit}>
-                      <div>
-                        <Label>Origin</Label>
-                        <div className="mt-1 rounded border bg-muted/40 px-3 py-2 text-sm">{selectedSoa.origin}</div>
-                      </div>
-                      {["ns", "mbox", "serial", "refresh", "retry", "expire", "minimum", "ttl"].map((field) => (
-                        <div key={field}>
-                          <Label htmlFor={`soa-${field}`}>{field.toUpperCase()}</Label>
-                          <Input
-                            id={`soa-${field}`}
-                            name={field}
-                            defaultValue={(selectedSoa as any)[field]}
-                            type={field === "ns" || field === "mbox" ? "text" : "number"}
-                            required
-                          />
-                        </div>
-                      ))}
-                      <div>
-                        <Label htmlFor="soa-active">Active</Label>
-                        <select
-                          id="soa-active"
-                          name="active"
-                          defaultValue={selectedSoa.active}
-                          className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                        >
-                          <option value="Y">Yes</option>
-                          <option value="N">No</option>
-                        </select>
-                      </div>
-                      {message && <p className="text-sm text-muted-foreground">{message}</p>}
-                      <Button type="submit" disabled={loading}>
-                        {loading ? "Saving..." : "Save changes"}
-                      </Button>
-                    </form>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Select a SOA record from the table.</p>
-                  )}
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>SOA Records</CardTitle>
-                </CardHeader>
-                <CardContent className="max-h-[420px] overflow-auto">
+            <Card>
+              <CardHeader>
+                <CardTitle>SOA Records</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="w-64">
+                    <Label htmlFor="soa-search" className="sr-only">Search</Label>
+                    <Input
+                      id="soa-search"
+                      placeholder="Filter by origin, NS, or mbox"
+                      value={soaSearch}
+                      onChange={(e) => setSoaSearch(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Origin</TableHead>
                         <TableHead>NS</TableHead>
+                        <TableHead>Mbox</TableHead>
                         <TableHead>Serial</TableHead>
+                        <TableHead>Refresh</TableHead>
+                        <TableHead>Retry</TableHead>
+                        <TableHead>Expire</TableHead>
+                        <TableHead>Minimum</TableHead>
+                        <TableHead>TTL</TableHead>
+                        <TableHead>Active</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {soaRecords.map((soa) => (
-                        <TableRow
-                          key={soa.id}
-                          className={selectedSoa?.id === soa.id ? "bg-muted" : ""}
-                          onClick={() => setSelectedSoa(soa)}
-                        >
-                          <TableCell>{soa.origin}</TableCell>
-                          <TableCell>{soa.ns}</TableCell>
-                          <TableCell>{soa.serial}</TableCell>
+                      {paginatedSoaRecords.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={11} className="text-center text-sm text-muted-foreground">
+                            No SOA records found
+                          </TableCell>
                         </TableRow>
-                      ))}
+                      ) : (
+                        paginatedSoaRecords.map((soa) => (
+                          <TableRow key={soa.id} className="hover:bg-muted/50">
+                            {editingSoaId === soa.id ? (
+                              <>
+                                <TableCell className="font-medium">{soa.origin}</TableCell>
+                                <TableCell>
+                                  <Input
+                                    value={editSoaData.ns || ""}
+                                    onChange={(e) => setEditSoaData({ ...editSoaData, ns: e.target.value })}
+                                    className="text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    value={editSoaData.mbox || ""}
+                                    onChange={(e) => setEditSoaData({ ...editSoaData, mbox: e.target.value })}
+                                    className="text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    value={editSoaData.serial ?? 0}
+                                    onChange={(e) => setEditSoaData({ ...editSoaData, serial: Number(e.target.value) })}
+                                    className="w-24 text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    value={editSoaData.refresh ?? 0}
+                                    onChange={(e) => setEditSoaData({ ...editSoaData, refresh: Number(e.target.value) })}
+                                    className="w-20 text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    value={editSoaData.retry ?? 0}
+                                    onChange={(e) => setEditSoaData({ ...editSoaData, retry: Number(e.target.value) })}
+                                    className="w-20 text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    value={editSoaData.expire ?? 0}
+                                    onChange={(e) => setEditSoaData({ ...editSoaData, expire: Number(e.target.value) })}
+                                    className="w-20 text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    value={editSoaData.minimum ?? 0}
+                                    onChange={(e) => setEditSoaData({ ...editSoaData, minimum: Number(e.target.value) })}
+                                    className="w-20 text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    value={editSoaData.ttl ?? 0}
+                                    onChange={(e) => setEditSoaData({ ...editSoaData, ttl: Number(e.target.value) })}
+                                    className="w-20 text-sm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <select
+                                    value={editSoaData.active || "Y"}
+                                    onChange={(e) => setEditSoaData({ ...editSoaData, active: e.target.value as "Y" | "N" })}
+                                    className="w-full rounded border px-2 py-1 text-sm"
+                                  >
+                                    <option value="Y">Yes</option>
+                                    <option value="N">No</option>
+                                  </select>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={handleSoaUpdate}
+                                      className="text-green-600 hover:text-green-700"
+                                    >
+                                      Save
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={cancelEditSoa}
+                                      className="text-gray-600 hover:text-gray-700"
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </>
+                            ) : (
+                              <>
+                                <TableCell className="font-medium">{soa.origin}</TableCell>
+                                <TableCell className="text-sm">{soa.ns}</TableCell>
+                                <TableCell className="text-sm">{soa.mbox}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{soa.serial}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{soa.refresh}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{soa.retry}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{soa.expire}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{soa.minimum}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{soa.ttl}</TableCell>
+                                <TableCell>
+                                  <span className={cn(
+                                    "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
+                                    soa.active === "Y" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
+                                  )}>
+                                    {soa.active === "Y" ? "Active" : "Inactive"}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => startEditSoa(soa)}
+                                    className="text-blue-600 hover:text-blue-700"
+                                  >
+                                    Edit
+                                  </Button>
+                                </TableCell>
+                              </>
+                            )}
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
-                </CardContent>
-              </Card>
-            </div>
+                </div>
+
+                {filteredSoaRecords.length > 0 && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      Showing {((soaCurrentPage - 1) * soaRecordsPerPage) + 1} to {Math.min(soaCurrentPage * soaRecordsPerPage, filteredSoaRecords.length)} of {filteredSoaRecords.length} records
+                      {soaSearch && ` (filtered from ${soaRecords.length} total)`}
+                    </p>
+                    {soaTotalPages > 1 && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSoaCurrentPage(1)}
+                          disabled={soaCurrentPage === 1}
+                        >
+                          First
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSoaCurrentPage(soaCurrentPage - 1)}
+                          disabled={soaCurrentPage === 1}
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-sm text-muted-foreground">
+                          Page {soaCurrentPage} of {soaTotalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSoaCurrentPage(soaCurrentPage + 1)}
+                          disabled={soaCurrentPage === soaTotalPages}
+                        >
+                          Next
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSoaCurrentPage(soaTotalPages)}
+                          disabled={soaCurrentPage === soaTotalPages}
+                        >
+                          Last
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
           <TabsContent value="rr">
             <Card>
