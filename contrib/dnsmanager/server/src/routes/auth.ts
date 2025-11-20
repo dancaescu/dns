@@ -14,6 +14,7 @@ import {
   clear2FACode,
   logAction,
 } from "../auth.js";
+import { send2FACode } from "../multitel.js";
 
 const router = Router();
 
@@ -86,9 +87,19 @@ router.post("/login", async (req, res) => {
       const code = generate2FACode();
       await store2FACode(user.id, code);
 
-      // TODO: Send code via email or SMS using Multitel API
-      // For now, just return that 2FA is required
-      console.log(`2FA code for ${username}: ${code}`); // Debug only
+      // Send code via email or SMS using Multitel API
+      try {
+        if (user.twofa_method && user.twofa_method !== "none" && user.twofa_contact) {
+          await send2FACode(user.twofa_method as "email" | "sms", user.twofa_contact, code);
+        } else {
+          // Fallback: log code to console if no contact configured
+          console.log(`2FA code for ${username}: ${code}`);
+        }
+      } catch (error) {
+        console.error("Failed to send 2FA code:", error);
+        // Still log and return success, just log the code to console as fallback
+        console.log(`2FA code for ${username}: ${code}`);
+      }
 
       await logAction(user.id, "login", `2FA code generated for ${username}`, ipAddress, userAgent);
 

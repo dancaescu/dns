@@ -3,12 +3,16 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { LoginPage } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { CloudflareZonePage } from "./pages/CloudflareZonePage";
-import { getToken, login, setToken } from "./lib/api";
+import { UserManagement } from "./pages/UserManagement";
+import { Settings } from "./pages/Settings";
+import { getToken, setToken, logout } from "./lib/api";
 
 interface User {
   id: number;
   username: string;
+  email: string;
   role: string;
+  full_name?: string;
 }
 
 export default function App() {
@@ -24,7 +28,6 @@ export default function App() {
   if (!token || !user) {
     return (
       <LoginPage
-        loginFn={login}
         onSuccess={(newToken, newUser) => {
           setToken(newToken);
           setAuthToken(newToken);
@@ -34,7 +37,12 @@ export default function App() {
     );
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
     setToken(null);
     setAuthToken(null);
     setUser(null);
@@ -42,8 +50,14 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<Dashboard onLogout={handleLogout} />} />
+      <Route path="/" element={<Dashboard onLogout={handleLogout} user={user} />} />
       <Route path="/cloudflare/zones/:zoneId" element={<CloudflareZonePage onLogout={handleLogout} />} />
+      {user?.role === "superadmin" && (
+        <>
+          <Route path="/users" element={<UserManagement onLogout={handleLogout} />} />
+          <Route path="/settings" element={<Settings onLogout={handleLogout} />} />
+        </>
+      )}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

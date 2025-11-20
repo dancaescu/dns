@@ -41,13 +41,14 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   return response.json();
 }
 
-export async function login(username: string, password: string) {
-  const data = await apiRequest<LoginResponse>("/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ username, password }),
-  });
-  setToken(data.token);
-  return data;
+export async function logout() {
+  try {
+    await apiRequest("/auth/logout", {
+      method: "POST",
+    });
+  } finally {
+    setToken(null);
+  }
 }
 
 export function getCloudflareZone<T = any>(zoneId: number) {

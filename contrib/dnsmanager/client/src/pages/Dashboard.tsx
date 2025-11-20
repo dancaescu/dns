@@ -54,7 +54,7 @@ interface CloudflareAccount {
 }
 
 
-export function Dashboard({ onLogout }: { onLogout: () => void }) {
+export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any }) {
   const navigate = useNavigate();
   const [soaRecords, setSoaRecords] = useState<SoaRecord[]>([]);
   const [selectedSoa, setSelectedSoa] = useState<SoaRecord | null>(null);
@@ -507,9 +507,21 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
           <h1 className="text-xl font-semibold">DNS Manager</h1>
           <p className="text-sm text-muted-foreground">Manage SOA/RR and mirrored Cloudflare data</p>
         </div>
-        <Button variant="outline" onClick={onLogout}>
-          Logout
-        </Button>
+        <div className="flex items-center gap-3">
+          {user?.role === "superadmin" && (
+            <>
+              <Button variant="outline" onClick={() => navigate("/users")}>
+                User Management
+              </Button>
+              <Button variant="outline" onClick={() => navigate("/settings")}>
+                Settings
+              </Button>
+            </>
+          )}
+          <Button variant="outline" onClick={onLogout}>
+            Logout
+          </Button>
+        </div>
       </header>
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
         <Tabs defaultValue="soa">
