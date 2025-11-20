@@ -23,6 +23,13 @@ export function Settings({ onLogout }: { onLogout: () => void }) {
   const [multitelApiUrl, setMultitelApiUrl] = useState("");
   const [sessionTimeout, setSessionTimeout] = useState("");
   const [require2FAAll, setRequire2FAAll] = useState(false);
+  const [ticketAdminEmail, setTicketAdminEmail] = useState("");
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("587");
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpPass, setSmtpPass] = useState("");
+  const [smtpFromEmail, setSmtpFromEmail] = useState("");
+  const [smtpFromName, setSmtpFromName] = useState("DNS Manager");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -51,6 +58,27 @@ export function Settings({ onLogout }: { onLogout: () => void }) {
             break;
           case "require_2fa_all":
             setRequire2FAAll(setting.setting_value === "1");
+            break;
+          case "ticket_admin_email":
+            setTicketAdminEmail(setting.setting_value);
+            break;
+          case "smtp_host":
+            setSmtpHost(setting.setting_value);
+            break;
+          case "smtp_port":
+            setSmtpPort(setting.setting_value);
+            break;
+          case "smtp_user":
+            setSmtpUser(setting.setting_value);
+            break;
+          case "smtp_pass":
+            setSmtpPass(setting.setting_value);
+            break;
+          case "smtp_from_email":
+            setSmtpFromEmail(setting.setting_value);
+            break;
+          case "smtp_from_name":
+            setSmtpFromName(setting.setting_value);
             break;
         }
       });
@@ -81,6 +109,13 @@ export function Settings({ onLogout }: { onLogout: () => void }) {
         updateSetting("multitel_api_url", multitelApiUrl),
         updateSetting("session_timeout", sessionTimeout),
         updateSetting("require_2fa_all", require2FAAll ? "1" : "0"),
+        updateSetting("ticket_admin_email", ticketAdminEmail),
+        updateSetting("smtp_host", smtpHost),
+        updateSetting("smtp_port", smtpPort),
+        updateSetting("smtp_user", smtpUser),
+        updateSetting("smtp_pass", smtpPass),
+        updateSetting("smtp_from_email", smtpFromEmail),
+        updateSetting("smtp_from_name", smtpFromName),
       ]);
       alert("Settings saved successfully!");
       loadSettings();
@@ -184,6 +219,88 @@ export function Settings({ onLogout }: { onLogout: () => void }) {
             <p className="text-xs text-muted-foreground">
               When enabled, all users will be required to set up 2FA on their next login
             </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Email Configuration</CardTitle>
+            <p className="text-sm text-muted-foreground">Configure SMTP settings for ticket notifications</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="ticket-admin-email">Ticket Admin Email</Label>
+              <Input
+                id="ticket-admin-email"
+                type="email"
+                value={ticketAdminEmail}
+                onChange={(e) => setTicketAdminEmail(e.target.value)}
+                placeholder="admin@example.com"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Email address to receive support ticket notifications
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="smtp-host">SMTP Host</Label>
+              <Input
+                id="smtp-host"
+                value={smtpHost}
+                onChange={(e) => setSmtpHost(e.target.value)}
+                placeholder="smtp.example.com"
+              />
+            </div>
+            <div>
+              <Label htmlFor="smtp-port">SMTP Port</Label>
+              <Input
+                id="smtp-port"
+                type="number"
+                value={smtpPort}
+                onChange={(e) => setSmtpPort(e.target.value)}
+                placeholder="587"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Common ports: 587 (TLS), 465 (SSL), 25 (plain)
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="smtp-user">SMTP Username</Label>
+              <Input
+                id="smtp-user"
+                value={smtpUser}
+                onChange={(e) => setSmtpUser(e.target.value)}
+                placeholder="Enter SMTP username"
+              />
+            </div>
+            <div>
+              <Label htmlFor="smtp-pass">SMTP Password</Label>
+              <Input
+                id="smtp-pass"
+                type="password"
+                value={smtpPass}
+                onChange={(e) => setSmtpPass(e.target.value)}
+                placeholder="Enter SMTP password"
+              />
+            </div>
+            <div>
+              <Label htmlFor="smtp-from-email">From Email Address</Label>
+              <Input
+                id="smtp-from-email"
+                type="email"
+                value={smtpFromEmail}
+                onChange={(e) => setSmtpFromEmail(e.target.value)}
+                placeholder="noreply@example.com"
+              />
+            </div>
+            <div>
+              <Label htmlFor="smtp-from-name">From Name</Label>
+              <Input
+                id="smtp-from-name"
+                value={smtpFromName}
+                onChange={(e) => setSmtpFromName(e.target.value)}
+                placeholder="DNS Manager"
+              />
+            </div>
           </CardContent>
         </Card>
 

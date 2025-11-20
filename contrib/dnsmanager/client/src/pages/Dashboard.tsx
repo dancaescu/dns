@@ -511,6 +511,9 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
           <Button variant="outline" onClick={() => navigate("/api-docs")}>
             API Docs
           </Button>
+          <Button variant="outline" onClick={() => navigate("/tickets")}>
+            Support
+          </Button>
           {user?.role === "superadmin" && (
             <>
               <Button variant="outline" onClick={() => navigate("/users")}>
