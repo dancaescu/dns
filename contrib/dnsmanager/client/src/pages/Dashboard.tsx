@@ -76,6 +76,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [rrDeleteModalOpen, setRrDeleteModalOpen] = useState(false);
   const [rrToDelete, setRrToDelete] = useState<{ id: number; name: string } | null>(null);
   const [rrDeleteConfirm, setRrDeleteConfirm] = useState("");
+  const [rrCurrentPage, setRrCurrentPage] = useState(1);
+  const rrRecordsPerPage = 25;
 
   useEffect(() => {
     refreshSoa();
@@ -93,7 +95,12 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     } else {
       setRrRecords([]);
     }
+    setRrCurrentPage(1);
   }, [rrZoneId]);
+
+  useEffect(() => {
+    setRrCurrentPage(1);
+  }, [rrSearch]);
 
 
   useEffect(() => {
@@ -140,6 +147,14 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         rr.data.toLowerCase().includes(lower)
     );
   }, [rrRecords, rrSearch]);
+
+  const paginatedRrRecords = useMemo(() => {
+    const startIndex = (rrCurrentPage - 1) * rrRecordsPerPage;
+    const endIndex = startIndex + rrRecordsPerPage;
+    return filteredRrRecords.slice(startIndex, endIndex);
+  }, [filteredRrRecords, rrCurrentPage, rrRecordsPerPage]);
+
+  const rrTotalPages = Math.ceil(filteredRrRecords.length / rrRecordsPerPage);
 
   async function refreshSoa() {
     const data = await apiRequest<SoaRecord[]>("/soa");
@@ -524,14 +539,14 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredRrRecords.length === 0 ? (
+                      {paginatedRrRecords.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
                             {rrZoneId ? "No records found" : "Select a zone to view records"}
                           </TableCell>
                         </TableRow>
                       ) : (
-                        filteredRrRecords.map((rr) => (
+                        paginatedRrRecords.map((rr) => (
                           <TableRow key={rr.id} className="hover:bg-muted/50">
                             {editingRrId === rr.id && editingRrData ? (
                               <>
@@ -641,9 +656,51 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 </div>
 
                 {filteredRrRecords.length > 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    Showing {filteredRrRecords.length} of {rrRecords.length} records
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      Showing {((rrCurrentPage - 1) * rrRecordsPerPage) + 1} to {Math.min(rrCurrentPage * rrRecordsPerPage, filteredRrRecords.length)} of {filteredRrRecords.length} records
+                      {rrSearch && ` (filtered from ${rrRecords.length} total)`}
+                    </p>
+                    {rrTotalPages > 1 && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRrCurrentPage(1)}
+                          disabled={rrCurrentPage === 1}
+                        >
+                          First
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRrCurrentPage(rrCurrentPage - 1)}
+                          disabled={rrCurrentPage === 1}
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-sm text-muted-foreground">
+                          Page {rrCurrentPage} of {rrTotalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRrCurrentPage(rrCurrentPage + 1)}
+                          disabled={rrCurrentPage === rrTotalPages}
+                        >
+                          Next
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRrCurrentPage(rrTotalPages)}
+                          disabled={rrCurrentPage === rrTotalPages}
+                        >
+                          Last
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>
