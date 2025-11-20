@@ -19,12 +19,14 @@ import {
   deleteCloudflareLoadBalancer,
   getLoadBalancerPools,
   getPool,
+  getLoadBalancerPoolsHealth,
 } from "../lib/api";
 import { RECORD_TYPE_LIST, RECORD_TYPES, TTL_OPTIONS, getTTLLabel } from "../lib/recordTypes";
 import { toast, ToastContainer } from "../components/ui/toast";
 import { TagInput } from "../components/ui/tag-input";
 import { SyncModal, SyncMode } from "../components/SyncModal";
 import { LoadBalancerEditor } from "../components/LoadBalancerEditor";
+import { HealthStatusBadge } from "../components/HealthStatusBadge";
 
 type CloudflareZoneDetail = {
   id: number;
@@ -113,6 +115,7 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
   const [editingLoadBalancer, setEditingLoadBalancer] = useState<any>(null);
   const [lbToDelete, setLbToDelete] = useState<{ id: number; name: string } | null>(null);
   const [lbDeleteModalOpen, setLbDeleteModalOpen] = useState(false);
+  const [lbHealthData, setLbHealthData] = useState<Map<number, any>>(new Map());
   const [lbDeleteConfirmText, setLbDeleteConfirmText] = useState("");
 
   const [soaRecord, setSoaRecord] = useState<SoaRecord | null>(null);
@@ -164,6 +167,54 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
       loadSoa(zone.name);
     }
   }, [zone?.name]);
+
+  // Fetch health data for all load balancers
+  useEffect(() => {
+    if (loadBalancers.length === 0) {
+      setLbHealthData(new Map());
+      return;
+    }
+
+    const fetchAllHealth = async () => {
+      const healthMap = new Map();
+
+      await Promise.all(
+        loadBalancers.map(async (lb) => {
+          try {
+            const data = await getLoadBalancerPoolsHealth(lb.id);
+            const pools = data.result || [];
+
+            // Calculate overall health: healthy if all pools are healthy
+            let overallHealthy = null;
+            if (pools.length > 0) {
+              const allHealthy = pools.every((p: any) => p.healthy === true);
+              const anyHealthy = pools.some((p: any) => p.healthy === true);
+              const anyUnhealthy = pools.some((p: any) => p.healthy === false);
+
+              if (allHealthy) {
+                overallHealthy = true;
+              } else if (anyUnhealthy) {
+                overallHealthy = false;
+              }
+            }
+
+            healthMap.set(lb.id, { healthy: overallHealthy, pools });
+          } catch (error) {
+            console.error(`Failed to fetch health for LB ${lb.id}:`, error);
+            healthMap.set(lb.id, { healthy: null, pools: [] });
+          }
+        })
+      );
+
+      setLbHealthData(healthMap);
+    };
+
+    fetchAllHealth();
+
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchAllHealth, 30000);
+    return () => clearInterval(interval);
+  }, [loadBalancers]);
 
   function exportToCSV() {
     const csvHeaders = ["Type", "Name", "Content", "TTL", "Proxied", "Priority", "Comment", "Tags"];
@@ -680,7 +731,13 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
                         LB
                       </span>
                       <div>
-                        <p className="font-medium text-blue-600">{lb.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-blue-600">{lb.name}</p>
+                          <HealthStatusBadge
+                            healthy={lbHealthData.get(lb.id)?.healthy ?? null}
+                            size="sm"
+                          />
+                        </div>
                         <div className="flex items-center gap-3 text-xs text-gray-600 mt-1">
                           {lb.enabled ? (
                             <span className="text-green-600">● Enabled</span>
