@@ -17,6 +17,8 @@ import {
   createCloudflareLoadBalancer,
   updateCloudflareLoadBalancer,
   deleteCloudflareLoadBalancer,
+  getLoadBalancerPools,
+  getPool,
 } from "../lib/api";
 import { RECORD_TYPE_LIST, RECORD_TYPES, TTL_OPTIONS, getTTLLabel } from "../lib/recordTypes";
 import { toast, ToastContainer } from "../components/ui/toast";
@@ -434,10 +436,33 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
   }
 
   async function startEditLoadBalancer(lb: CloudflareLoadBalancer) {
-    // Load pools and origins for this load balancer
-    // For now, just pass the LB data, will need API to fetch pools/origins
-    setEditingLoadBalancer(lb);
-    setShowLbEditor(true);
+    try {
+      setRecordLoading(true);
+      // Fetch pools with their origins for this load balancer
+      const pools = await getLoadBalancerPools(lb.id);
+
+      // Fetch origins for each pool
+      const poolsWithOrigins = await Promise.all(
+        pools.map(async (pool: any) => {
+          const poolDetail = await getPool(pool.id);
+          return {
+            ...pool,
+            origins: poolDetail.origins || [],
+          };
+        })
+      );
+
+      setEditingLoadBalancer({
+        ...lb,
+        pools: poolsWithOrigins,
+      });
+      setShowLbEditor(true);
+    } catch (error) {
+      toast.error("Failed to load load balancer details");
+      console.error(error);
+    } finally {
+      setRecordLoading(false);
+    }
   }
 
   async function handleSaveLoadBalancer(lbData: any) {
