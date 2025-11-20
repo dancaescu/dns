@@ -441,17 +441,21 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
       setRecordLoading(true);
       // Fetch pools with their origins for this load balancer
       const pools = await getLoadBalancerPools(lb.id);
+      console.log("Fetched pools:", pools);
 
       // Fetch origins for each pool
       const poolsWithOrigins = await Promise.all(
         pools.map(async (pool: any) => {
           const poolDetail = await getPool(pool.id);
+          console.log(`Pool ${pool.id} detail:`, poolDetail);
           return {
             ...pool,
             origins: poolDetail.origins || [],
           };
         })
       );
+
+      console.log("Pools with origins:", poolsWithOrigins);
 
       setEditingLoadBalancer({
         ...lb,
@@ -460,7 +464,7 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
       setShowLbEditor(true);
     } catch (error) {
       toast.error("Failed to load load balancer details");
-      console.error(error);
+      console.error("Error loading load balancer:", error);
     } finally {
       setRecordLoading(false);
     }

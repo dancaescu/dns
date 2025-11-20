@@ -85,6 +85,12 @@ export function LoadBalancerEditor({
     pools: (loadBalancer?.pools || []) as LBPool[],
   });
 
+  // Debug: Log when loadBalancer changes
+  useEffect(() => {
+    console.log("LoadBalancerEditor received loadBalancer:", loadBalancer);
+    console.log("Pools in loadBalancer:", loadBalancer?.pools);
+  }, [loadBalancer]);
+
   const [healthData, setHealthData] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(false);
 
