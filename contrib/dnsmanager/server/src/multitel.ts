@@ -13,7 +13,7 @@ interface MultitelSettings {
 async function getMultitelSettings(): Promise<MultitelSettings> {
   const [rows] = await query<{ setting_key: string; setting_value: string; is_encrypted: number }>(
     `SELECT setting_key, setting_value, is_encrypted
-     FROM dnsadmin_settings
+     FROM dnsmanager_settings
      WHERE setting_key IN ('multitel_api_user', 'multitel_api_pass', 'multitel_api_url')`
   );
 

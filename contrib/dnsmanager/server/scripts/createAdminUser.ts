@@ -20,21 +20,21 @@ async function createAdminUser() {
 
   // Check if admin user already exists
   const [existing] = await connection.query(
-    "SELECT id FROM dnsadmin_users WHERE username = 'admin'",
+    "SELECT id FROM dnsmanager_users WHERE username = 'admin'",
     []
   );
 
   if ((existing as any[]).length > 0) {
     console.log("Admin user already exists, updating password...");
     await connection.execute(
-      "UPDATE dnsadmin_users SET password_hash = ?, active = 1 WHERE username = 'admin'",
+      "UPDATE dnsmanager_users SET password_hash = ?, active = 1 WHERE username = 'admin'",
       [passwordHash]
     );
     console.log("Admin password updated to: admin123");
   } else {
     console.log("Creating admin user...");
     await connection.execute(
-      `INSERT INTO dnsadmin_users
+      `INSERT INTO dnsmanager_users
        (username, email, password_hash, full_name, role, active, require_2fa, twofa_method)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ["admin", "admin@localhost", passwordHash, "System Administrator", "superadmin", 1, 0, "none"]

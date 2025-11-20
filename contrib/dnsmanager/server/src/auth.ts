@@ -70,7 +70,7 @@ export function generate2FACode(): string {
 export async function store2FACode(userId: number, code: string): Promise<void> {
   const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
   await execute(
-    `UPDATE dnsadmin_users SET twofa_secret = ?, twofa_secret_expiry = ? WHERE id = ?`,
+    `UPDATE dnsmanager_users SET twofa_secret = ?, twofa_secret_expiry = ? WHERE id = ?`,
     [code, expiry, userId]
   );
 }
@@ -80,7 +80,7 @@ export async function store2FACode(userId: number, code: string): Promise<void> 
  */
 export async function verify2FACode(userId: number, code: string): Promise<boolean> {
   const [rows] = await query<{ twofa_secret: string; twofa_secret_expiry: Date }>(
-    `SELECT twofa_secret, twofa_secret_expiry FROM dnsadmin_users WHERE id = ?`,
+    `SELECT twofa_secret, twofa_secret_expiry FROM dnsmanager_users WHERE id = ?`,
     [userId]
   );
 
@@ -101,7 +101,7 @@ export async function verify2FACode(userId: number, code: string): Promise<boole
  */
 export async function clear2FACode(userId: number): Promise<void> {
   await execute(
-    `UPDATE dnsadmin_users SET twofa_secret = NULL, twofa_secret_expiry = NULL WHERE id = ?`,
+    `UPDATE dnsmanager_users SET twofa_secret = NULL, twofa_secret_expiry = NULL WHERE id = ?`,
     [userId]
   );
 }
@@ -117,13 +117,13 @@ export async function createSession(
   const sessionToken = crypto.randomBytes(48).toString("hex");
 
   await execute(
-    `INSERT INTO dnsadmin_logins (user_id, session_token, ip_address, user_agent, is_active)
+    `INSERT INTO dnsmanager_logins (user_id, session_token, ip_address, user_agent, is_active)
      VALUES (?, ?, ?, ?, 1)`,
     [userId, sessionToken, ipAddress, userAgent]
   );
 
   // Update last login
-  await execute(`UPDATE dnsadmin_users SET last_login = NOW() WHERE id = ?`, [userId]);
+  await execute(`UPDATE dnsmanager_users SET last_login = NOW() WHERE id = ?`, [userId]);
 
   return sessionToken;
 }
@@ -140,8 +140,8 @@ export async function getSession(sessionToken: string): Promise<SessionData | nu
     last_activity: Date;
   }>(
     `SELECT l.user_id, u.username, u.role, l.is_active, l.last_activity
-     FROM dnsadmin_logins l
-     JOIN dnsadmin_users u ON u.id = l.user_id
+     FROM dnsmanager_logins l
+     JOIN dnsmanager_users u ON u.id = l.user_id
      WHERE l.session_token = ? AND l.is_active = 1`,
     [sessionToken]
   );
@@ -157,14 +157,14 @@ export async function getSession(sessionToken: string): Promise<SessionData | nu
 
   if (hoursSinceActivity > 24) {
     // Expire the session
-    await execute(`UPDATE dnsadmin_logins SET is_active = 0, logout_at = NOW() WHERE session_token = ?`, [
+    await execute(`UPDATE dnsmanager_logins SET is_active = 0, logout_at = NOW() WHERE session_token = ?`, [
       sessionToken,
     ]);
     return null;
   }
 
   // Update last activity
-  await execute(`UPDATE dnsadmin_logins SET last_activity = NOW() WHERE session_token = ?`, [sessionToken]);
+  await execute(`UPDATE dnsmanager_logins SET last_activity = NOW() WHERE session_token = ?`, [sessionToken]);
 
   return {
     userId: session.user_id,
@@ -178,7 +178,7 @@ export async function getSession(sessionToken: string): Promise<SessionData | nu
  * Update current page for session
  */
 export async function updateSessionPage(sessionToken: string, page: string): Promise<void> {
-  await execute(`UPDATE dnsadmin_logins SET current_page = ?, last_activity = NOW() WHERE session_token = ?`, [
+  await execute(`UPDATE dnsmanager_logins SET current_page = ?, last_activity = NOW() WHERE session_token = ?`, [
     page,
     sessionToken,
   ]);
@@ -189,7 +189,7 @@ export async function updateSessionPage(sessionToken: string, page: string): Pro
  */
 export async function endSession(sessionToken: string): Promise<void> {
   await execute(
-    `UPDATE dnsadmin_logins SET is_active = 0, logout_at = NOW() WHERE session_token = ?`,
+    `UPDATE dnsmanager_logins SET is_active = 0, logout_at = NOW() WHERE session_token = ?`,
     [sessionToken]
   );
 }
@@ -201,8 +201,8 @@ export async function getActiveSessions() {
   const [rows] = await query(
     `SELECT l.id, l.user_id, u.username, u.email, u.role, l.ip_address,
             l.current_page, l.last_activity, l.login_at
-     FROM dnsadmin_logins l
-     JOIN dnsadmin_users u ON u.id = l.user_id
+     FROM dnsmanager_logins l
+     JOIN dnsmanager_users u ON u.id = l.user_id
      WHERE l.is_active = 1
      ORDER BY l.last_activity DESC`
   );
@@ -223,7 +223,7 @@ export async function logAction(
   metadata?: any
 ): Promise<void> {
   await execute(
-    `INSERT INTO dnsadmin_logs
+    `INSERT INTO dnsmanager_logs
      (user_id, action_type, resource_type, resource_id, description, metadata, ip_address, user_agent)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -246,8 +246,8 @@ export async function getLogs(limit = 100, offset = 0, userId?: number, actionTy
   let sql = `
     SELECT l.id, l.user_id, u.username, l.action_type, l.resource_type, l.resource_id,
            l.description, l.metadata, l.ip_address, l.created_at
-    FROM dnsadmin_logs l
-    LEFT JOIN dnsadmin_users u ON u.id = l.user_id
+    FROM dnsmanager_logs l
+    LEFT JOIN dnsmanager_users u ON u.id = l.user_id
     WHERE 1=1
   `;
   const params: any[] = [];
@@ -286,7 +286,7 @@ export async function hasPermission(
   const actionColumn = `can_${action}`;
   let sql = `
     SELECT ${actionColumn}
-    FROM dnsadmin_user_permissions
+    FROM dnsmanager_user_permissions
     WHERE user_id = ? AND permission_type = ?
   `;
   const params: any[] = [userId, permissionType];
@@ -321,7 +321,7 @@ export async function getUserAccounts(userId: number, role: string) {
   const [rows] = await query(
     `SELECT ca.*
      FROM cloudflare_accounts ca
-     JOIN dnsadmin_user_accounts ua ON ua.account_id = ca.id
+     JOIN dnsmanager_user_accounts ua ON ua.account_id = ca.id
      WHERE ua.user_id = ?
      ORDER BY ca.name`,
     [userId]
@@ -334,7 +334,7 @@ export async function getUserAccounts(userId: number, role: string) {
  */
 export async function isAccountAdmin(userId: number, accountId: number): Promise<boolean> {
   const [rows] = await query<{ is_account_admin: number }>(
-    `SELECT is_account_admin FROM dnsadmin_user_accounts
+    `SELECT is_account_admin FROM dnsmanager_user_accounts
      WHERE user_id = ? AND account_id = ?`,
     [userId, accountId]
   );

@@ -56,7 +56,7 @@ router.post("/login", async (req, res) => {
     // Find user
     const [rows] = await query<User & { password_hash: string }>(
       `SELECT id, username, email, full_name, role, active, require_2fa, twofa_method, twofa_contact, password_hash
-       FROM dnsadmin_users
+       FROM dnsmanager_users
        WHERE username = ? OR email = ?`,
       [username, username]
     );
@@ -161,7 +161,7 @@ router.post("/verify-2fa", async (req, res) => {
     // Get user
     const [rows] = await query<User>(
       `SELECT id, username, email, full_name, role, active, require_2fa, twofa_method, twofa_contact
-       FROM dnsadmin_users
+       FROM dnsmanager_users
        WHERE id = ?`,
       [userId]
     );
@@ -240,7 +240,7 @@ router.get("/me", async (req, res) => {
     // Get full user info
     const [rows] = await query<User>(
       `SELECT id, username, email, full_name, role, active, require_2fa, twofa_method, twofa_contact
-       FROM dnsadmin_users
+       FROM dnsmanager_users
        WHERE id = ?`,
       [session.userId]
     );
@@ -295,7 +295,7 @@ router.post("/change-password", async (req, res) => {
 
     // Get current password hash
     const [rows] = await query<{ password_hash: string }>(
-      `SELECT password_hash FROM dnsadmin_users WHERE id = ?`,
+      `SELECT password_hash FROM dnsmanager_users WHERE id = ?`,
       [session.userId]
     );
 
@@ -314,7 +314,7 @@ router.post("/change-password", async (req, res) => {
     const newHash = await hashPassword(newPassword);
 
     // Update password
-    await execute(`UPDATE dnsadmin_users SET password_hash = ? WHERE id = ?`, [newHash, session.userId]);
+    await execute(`UPDATE dnsmanager_users SET password_hash = ? WHERE id = ?`, [newHash, session.userId]);
 
     await logAction(session.userId, "user_update", `Password changed`, ipAddress, userAgent, "user", session.userId);
 
@@ -357,7 +357,7 @@ router.post("/update-2fa", async (req, res) => {
 
     // Update 2FA settings
     await execute(
-      `UPDATE dnsadmin_users SET twofa_method = ?, twofa_contact = ?, require_2fa = ? WHERE id = ?`,
+      `UPDATE dnsmanager_users SET twofa_method = ?, twofa_contact = ?, require_2fa = ? WHERE id = ?`,
       [twofa_method, twofa_contact || null, twofa_method !== "none" ? 1 : 0, session.userId]
     );
 

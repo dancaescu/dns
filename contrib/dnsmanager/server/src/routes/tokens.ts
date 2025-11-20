@@ -39,7 +39,7 @@ router.get("/", async (req: any, res) => {
     const [rows] = await query(
       `SELECT id, token_name, token_prefix, scopes, last_used, last_used_ip,
               expires_at, active, created_at
-       FROM dnsadmin_tokens
+       FROM dnsmanager_tokens
        WHERE user_id = ?
        ORDER BY created_at DESC`,
       [req.session.userId]
@@ -104,7 +104,7 @@ router.post("/", async (req: any, res) => {
 
     // Insert token
     const result = await execute(
-      `INSERT INTO dnsadmin_tokens (user_id, token_name, token_hash, token_prefix, scopes, expires_at)
+      `INSERT INTO dnsmanager_tokens (user_id, token_name, token_hash, token_prefix, scopes, expires_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [
         req.session.userId,
@@ -152,7 +152,7 @@ router.delete("/:id", async (req: any, res) => {
   try {
     // Verify ownership
     const [rows] = await query<{ token_name: string }>(
-      `SELECT token_name FROM dnsadmin_tokens WHERE id = ? AND user_id = ?`,
+      `SELECT token_name FROM dnsmanager_tokens WHERE id = ? AND user_id = ?`,
       [tokenId, req.session.userId]
     );
 
@@ -163,7 +163,7 @@ router.delete("/:id", async (req: any, res) => {
     const tokenName = rows[0].token_name;
 
     // Delete token
-    await execute(`DELETE FROM dnsadmin_tokens WHERE id = ?`, [tokenId]);
+    await execute(`DELETE FROM dnsmanager_tokens WHERE id = ?`, [tokenId]);
 
     await logAction(
       req.session.userId,
@@ -191,7 +191,7 @@ router.get("/:id/usage", async (req: any, res) => {
   try {
     // Verify ownership
     const [tokens] = await query(
-      `SELECT id FROM dnsadmin_tokens WHERE id = ? AND user_id = ?`,
+      `SELECT id FROM dnsmanager_tokens WHERE id = ? AND user_id = ?`,
       [tokenId, req.session.userId]
     );
 
@@ -202,7 +202,7 @@ router.get("/:id/usage", async (req: any, res) => {
     // Get usage logs
     const [logs] = await query(
       `SELECT id, endpoint, method, ip_address, response_status, created_at
-       FROM dnsadmin_token_usage
+       FROM dnsmanager_token_usage
        WHERE token_id = ?
        ORDER BY created_at DESC
        LIMIT ?`,

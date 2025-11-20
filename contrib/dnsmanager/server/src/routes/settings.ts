@@ -74,7 +74,7 @@ router.get("/", async (req: any, res) => {
       updated_at: Date;
     }>(
       `SELECT id, setting_key, setting_value, is_encrypted, description, updated_at
-       FROM dnsadmin_settings
+       FROM dnsmanager_settings
        ORDER BY setting_key`
     );
 
@@ -106,7 +106,7 @@ router.get("/:key", async (req: any, res) => {
       updated_at: Date;
     }>(
       `SELECT id, setting_key, setting_value, is_encrypted, description, updated_at
-       FROM dnsadmin_settings
+       FROM dnsmanager_settings
        WHERE setting_key = ?`,
       [req.params.key]
     );
@@ -143,7 +143,7 @@ router.put("/:key", async (req: any, res) => {
   try {
     // Check if setting exists and if it's encrypted
     const [rows] = await query<{ is_encrypted: number }>(
-      `SELECT is_encrypted FROM dnsadmin_settings WHERE setting_key = ?`,
+      `SELECT is_encrypted FROM dnsmanager_settings WHERE setting_key = ?`,
       [req.params.key]
     );
 
@@ -155,7 +155,7 @@ router.put("/:key", async (req: any, res) => {
     const valueToStore = isEncrypted ? encryptValue(parsed.data.setting_value) : parsed.data.setting_value;
 
     await execute(
-      `UPDATE dnsadmin_settings SET setting_value = ?, updated_by = ? WHERE setting_key = ?`,
+      `UPDATE dnsmanager_settings SET setting_value = ?, updated_by = ? WHERE setting_key = ?`,
       [valueToStore, req.session.userId, req.params.key]
     );
 
@@ -197,7 +197,7 @@ router.post("/", async (req: any, res) => {
   try {
     // Check if setting already exists
     const [existing] = await query(
-      `SELECT id FROM dnsadmin_settings WHERE setting_key = ?`,
+      `SELECT id FROM dnsmanager_settings WHERE setting_key = ?`,
       [parsed.data.setting_key]
     );
 
@@ -210,7 +210,7 @@ router.post("/", async (req: any, res) => {
       : parsed.data.setting_value;
 
     await execute(
-      `INSERT INTO dnsadmin_settings (setting_key, setting_value, is_encrypted, description, updated_by)
+      `INSERT INTO dnsmanager_settings (setting_key, setting_value, is_encrypted, description, updated_by)
        VALUES (?, ?, ?, ?, ?)`,
       [
         parsed.data.setting_key,
@@ -245,7 +245,7 @@ router.delete("/:key", async (req: any, res) => {
   const userAgent = req.headers["user-agent"] || "unknown";
 
   try {
-    await execute(`DELETE FROM dnsadmin_settings WHERE setting_key = ?`, [req.params.key]);
+    await execute(`DELETE FROM dnsmanager_settings WHERE setting_key = ?`, [req.params.key]);
 
     await logAction(
       req.session.userId,

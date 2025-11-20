@@ -2,7 +2,7 @@
 -- Creates tables for user authentication, permissions, activity tracking, and audit logs
 
 -- Main users table
-CREATE TABLE IF NOT EXISTS dnsadmin_users (
+CREATE TABLE IF NOT EXISTS dnsmanager_users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   username VARCHAR(100) NOT NULL UNIQUE,
   email VARCHAR(255) NOT NULL UNIQUE,
@@ -22,11 +22,11 @@ CREATE TABLE IF NOT EXISTS dnsadmin_users (
   INDEX idx_username (username),
   INDEX idx_email (email),
   INDEX idx_role (role),
-  FOREIGN KEY (created_by) REFERENCES dnsadmin_users(id) ON DELETE SET NULL
+  FOREIGN KEY (created_by) REFERENCES dnsmanager_users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- User-to-Cloudflare Account assignments (many-to-many)
-CREATE TABLE IF NOT EXISTS dnsadmin_user_accounts (
+CREATE TABLE IF NOT EXISTS dnsmanager_user_accounts (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
   account_id INT NOT NULL, -- references cloudflare_accounts.id
@@ -36,13 +36,13 @@ CREATE TABLE IF NOT EXISTS dnsadmin_user_accounts (
   UNIQUE KEY unique_user_account (user_id, account_id),
   INDEX idx_user_id (user_id),
   INDEX idx_account_id (account_id),
-  FOREIGN KEY (user_id) REFERENCES dnsadmin_users(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES dnsmanager_users(id) ON DELETE CASCADE,
   FOREIGN KEY (account_id) REFERENCES cloudflare_accounts(id) ON DELETE CASCADE,
-  FOREIGN KEY (created_by) REFERENCES dnsadmin_users(id) ON DELETE SET NULL
+  FOREIGN KEY (created_by) REFERENCES dnsmanager_users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Granular user permissions
-CREATE TABLE IF NOT EXISTS dnsadmin_user_permissions (
+CREATE TABLE IF NOT EXISTS dnsmanager_user_permissions (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
   permission_type ENUM('zone', 'soa', 'rr', 'cloudflare', 'user_management', 'load_balancer') NOT NULL,
@@ -56,12 +56,12 @@ CREATE TABLE IF NOT EXISTS dnsadmin_user_permissions (
   INDEX idx_user_id (user_id),
   INDEX idx_permission_type (permission_type),
   INDEX idx_resource_id (resource_id),
-  FOREIGN KEY (user_id) REFERENCES dnsadmin_users(id) ON DELETE CASCADE,
-  FOREIGN KEY (created_by) REFERENCES dnsadmin_users(id) ON DELETE SET NULL
+  FOREIGN KEY (user_id) REFERENCES dnsmanager_users(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES dnsmanager_users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Active login sessions and page tracking
-CREATE TABLE IF NOT EXISTS dnsadmin_logins (
+CREATE TABLE IF NOT EXISTS dnsmanager_logins (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
   session_token VARCHAR(255) NOT NULL UNIQUE,
@@ -76,11 +76,11 @@ CREATE TABLE IF NOT EXISTS dnsadmin_logins (
   INDEX idx_session_token (session_token),
   INDEX idx_is_active (is_active),
   INDEX idx_last_activity (last_activity),
-  FOREIGN KEY (user_id) REFERENCES dnsadmin_users(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES dnsmanager_users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Audit log for all actions
-CREATE TABLE IF NOT EXISTS dnsadmin_logs (
+CREATE TABLE IF NOT EXISTS dnsmanager_logs (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NULL,
   action_type ENUM(
@@ -107,11 +107,11 @@ CREATE TABLE IF NOT EXISTS dnsadmin_logs (
   INDEX idx_resource_type (resource_type),
   INDEX idx_resource_id (resource_id),
   INDEX idx_created_at (created_at),
-  FOREIGN KEY (user_id) REFERENCES dnsadmin_users(id) ON DELETE SET NULL
+  FOREIGN KEY (user_id) REFERENCES dnsmanager_users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- System settings (Multitel API credentials, etc.)
-CREATE TABLE IF NOT EXISTS dnsadmin_settings (
+CREATE TABLE IF NOT EXISTS dnsmanager_settings (
   id INT AUTO_INCREMENT PRIMARY KEY,
   setting_key VARCHAR(100) NOT NULL UNIQUE,
   setting_value TEXT NOT NULL,
@@ -120,12 +120,12 @@ CREATE TABLE IF NOT EXISTS dnsadmin_settings (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   updated_by INT NULL,
   INDEX idx_setting_key (setting_key),
-  FOREIGN KEY (updated_by) REFERENCES dnsadmin_users(id) ON DELETE SET NULL
+  FOREIGN KEY (updated_by) REFERENCES dnsmanager_users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Insert default superadmin user (password: 'admin123' - should be changed immediately)
 -- Password hash for 'admin123' using bcrypt (cost 10)
-INSERT INTO dnsadmin_users (username, email, password_hash, full_name, role, active)
+INSERT INTO dnsmanager_users (username, email, password_hash, full_name, role, active)
 VALUES (
   'admin',
   'admin@localhost',
@@ -136,7 +136,7 @@ VALUES (
 ) ON DUPLICATE KEY UPDATE id=id;
 
 -- Insert default Multitel API settings placeholders
-INSERT INTO dnsadmin_settings (setting_key, setting_value, is_encrypted, description) VALUES
+INSERT INTO dnsmanager_settings (setting_key, setting_value, is_encrypted, description) VALUES
   ('multitel_api_user', '', 1, 'Multitel API username for SMS/email 2FA'),
   ('multitel_api_pass', '', 1, 'Multitel API password for SMS/email 2FA'),
   ('multitel_api_url', 'https://api.multitel.net/v3/sendcode', 0, 'Multitel API endpoint URL'),

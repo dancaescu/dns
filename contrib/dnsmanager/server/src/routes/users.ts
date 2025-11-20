@@ -79,7 +79,7 @@ router.get("/", requireSuperadmin, async (req: any, res) => {
     const [rows] = await query(
       `SELECT id, username, email, full_name, role, active, require_2fa, twofa_method,
               last_login, created_at
-       FROM dnsadmin_users
+       FROM dnsmanager_users
        ORDER BY username`
     );
     res.json({ users: rows });
@@ -107,7 +107,7 @@ router.get("/:id", async (req: any, res) => {
     const [rows] = await query(
       `SELECT id, username, email, full_name, role, active, require_2fa, twofa_method,
               twofa_contact, last_login, created_at, updated_at
-       FROM dnsadmin_users
+       FROM dnsmanager_users
        WHERE id = ?`,
       [userId]
     );
@@ -121,7 +121,7 @@ router.get("/:id", async (req: any, res) => {
     // Get user's account assignments
     const [accounts] = await query(
       `SELECT ua.id, ua.account_id, ua.is_account_admin, ca.name as account_name
-       FROM dnsadmin_user_accounts ua
+       FROM dnsmanager_user_accounts ua
        JOIN cloudflare_accounts ca ON ca.id = ua.account_id
        WHERE ua.user_id = ?`,
       [userId]
@@ -130,7 +130,7 @@ router.get("/:id", async (req: any, res) => {
     // Get user's permissions
     const [permissions] = await query(
       `SELECT id, permission_type, resource_id, can_view, can_add, can_edit, can_delete
-       FROM dnsadmin_user_permissions
+       FROM dnsmanager_user_permissions
        WHERE user_id = ?`,
       [userId]
     );
@@ -167,7 +167,7 @@ router.post("/", async (req: any, res) => {
 
     // Check if username or email already exists
     const [existing] = await query(
-      `SELECT id FROM dnsadmin_users WHERE username = ? OR email = ?`,
+      `SELECT id FROM dnsmanager_users WHERE username = ? OR email = ?`,
       [parsed.data.username, parsed.data.email]
     );
 
@@ -180,7 +180,7 @@ router.post("/", async (req: any, res) => {
 
     // Create user
     const result = await execute(
-      `INSERT INTO dnsadmin_users
+      `INSERT INTO dnsmanager_users
        (username, email, password_hash, full_name, role, active, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -254,7 +254,7 @@ router.put("/:id", async (req: any, res) => {
     });
     values.push(userId);
 
-    await execute(`UPDATE dnsadmin_users SET ${setClause} WHERE id = ?`, values);
+    await execute(`UPDATE dnsmanager_users SET ${setClause} WHERE id = ?`, values);
 
     await logAction(
       req.session.userId,
@@ -290,7 +290,7 @@ router.delete("/:id", requireSuperadmin, async (req: any, res) => {
 
     // Get username for logging
     const [rows] = await query<{ username: string }>(
-      `SELECT username FROM dnsadmin_users WHERE id = ?`,
+      `SELECT username FROM dnsmanager_users WHERE id = ?`,
       [userId]
     );
 
@@ -300,7 +300,7 @@ router.delete("/:id", requireSuperadmin, async (req: any, res) => {
 
     const username = rows[0].username;
 
-    await execute(`DELETE FROM dnsadmin_users WHERE id = ?`, [userId]);
+    await execute(`DELETE FROM dnsmanager_users WHERE id = ?`, [userId]);
 
     await logAction(
       req.session.userId,
@@ -344,7 +344,7 @@ router.post("/:id/accounts", async (req: any, res) => {
 
     // Check if already assigned
     const [existing] = await query(
-      `SELECT id FROM dnsadmin_user_accounts WHERE user_id = ? AND account_id = ?`,
+      `SELECT id FROM dnsmanager_user_accounts WHERE user_id = ? AND account_id = ?`,
       [userId, parsed.data.account_id]
     );
 
@@ -353,7 +353,7 @@ router.post("/:id/accounts", async (req: any, res) => {
     }
 
     await execute(
-      `INSERT INTO dnsadmin_user_accounts (user_id, account_id, is_account_admin, created_by)
+      `INSERT INTO dnsmanager_user_accounts (user_id, account_id, is_account_admin, created_by)
        VALUES (?, ?, ?, ?)`,
       [userId, parsed.data.account_id, parsed.data.is_account_admin ? 1 : 0, req.session.userId]
     );
@@ -388,7 +388,7 @@ router.delete("/:id/accounts/:accountAssignmentId", async (req: any, res) => {
   try {
     // Get account_id for permission check
     const [rows] = await query<{ account_id: number }>(
-      `SELECT account_id FROM dnsadmin_user_accounts WHERE id = ?`,
+      `SELECT account_id FROM dnsmanager_user_accounts WHERE id = ?`,
       [assignmentId]
     );
 
@@ -406,7 +406,7 @@ router.delete("/:id/accounts/:accountAssignmentId", async (req: any, res) => {
       }
     }
 
-    await execute(`DELETE FROM dnsadmin_user_accounts WHERE id = ?`, [assignmentId]);
+    await execute(`DELETE FROM dnsmanager_user_accounts WHERE id = ?`, [assignmentId]);
 
     await logAction(
       req.session.userId,
@@ -446,7 +446,7 @@ router.post("/:id/permissions", async (req: any, res) => {
     }
 
     await execute(
-      `INSERT INTO dnsadmin_user_permissions
+      `INSERT INTO dnsmanager_user_permissions
        (user_id, permission_type, resource_id, can_view, can_add, can_edit, can_delete, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -494,7 +494,7 @@ router.delete("/:id/permissions/:permissionId", async (req: any, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    await execute(`DELETE FROM dnsadmin_user_permissions WHERE id = ? AND user_id = ?`, [permissionId, userId]);
+    await execute(`DELETE FROM dnsmanager_user_permissions WHERE id = ? AND user_id = ?`, [permissionId, userId]);
 
     await logAction(
       req.session.userId,

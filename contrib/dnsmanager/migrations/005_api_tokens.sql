@@ -1,7 +1,7 @@
 -- API Tokens System Migration
 -- Allows users to create API tokens for programmatic access
 
-CREATE TABLE IF NOT EXISTS dnsadmin_tokens (
+CREATE TABLE IF NOT EXISTS dnsmanager_tokens (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
   token_name VARCHAR(255) NOT NULL,
@@ -18,11 +18,11 @@ CREATE TABLE IF NOT EXISTS dnsadmin_tokens (
   INDEX idx_token_hash (token_hash),
   INDEX idx_token_prefix (token_prefix),
   INDEX idx_active (active),
-  FOREIGN KEY (user_id) REFERENCES dnsadmin_users(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES dnsmanager_users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Add API token usage logs
-CREATE TABLE IF NOT EXISTS dnsadmin_token_usage (
+CREATE TABLE IF NOT EXISTS dnsmanager_token_usage (
   id INT AUTO_INCREMENT PRIMARY KEY,
   token_id INT NOT NULL,
   endpoint VARCHAR(500) NOT NULL,
@@ -33,5 +33,5 @@ CREATE TABLE IF NOT EXISTS dnsadmin_token_usage (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_token_id (token_id),
   INDEX idx_created_at (created_at),
-  FOREIGN KEY (token_id) REFERENCES dnsadmin_tokens(id) ON DELETE CASCADE
+  FOREIGN KEY (token_id) REFERENCES dnsmanager_tokens(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

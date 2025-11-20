@@ -58,8 +58,8 @@ export async function authenticateToken(token: string): Promise<{
   }>(
     `SELECT t.id, t.user_id, t.token_hash, t.scopes, t.active, t.expires_at,
             u.username, u.role
-     FROM dnsadmin_tokens t
-     JOIN dnsadmin_users u ON u.id = t.user_id
+     FROM dnsmanager_tokens t
+     JOIN dnsmanager_users u ON u.id = t.user_id
      WHERE t.token_prefix = ? AND t.active = 1`,
     [prefix]
   );
@@ -76,7 +76,7 @@ export async function authenticateToken(token: string): Promise<{
     if (valid) {
       // Update last used
       await execute(
-        `UPDATE dnsadmin_tokens SET last_used = NOW(), last_used_ip = ? WHERE id = ?`,
+        `UPDATE dnsmanager_tokens SET last_used = NOW(), last_used_ip = ? WHERE id = ?`,
         ["api", tokenRow.id]
       );
 
@@ -113,7 +113,7 @@ export async function logTokenUsage(
   responseStatus: number
 ): Promise<void> {
   await execute(
-    `INSERT INTO dnsadmin_token_usage (token_id, endpoint, method, ip_address, user_agent, response_status)
+    `INSERT INTO dnsmanager_token_usage (token_id, endpoint, method, ip_address, user_agent, response_status)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [tokenId, endpoint, method, ipAddress, userAgent, responseStatus]
   );
