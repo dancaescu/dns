@@ -5,6 +5,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { CloudflareZonePage } from "./pages/CloudflareZonePage";
 import { UserManagement } from "./pages/UserManagement";
 import { Settings } from "./pages/Settings";
+import ApiDocs from "./pages/ApiDocs";
 import { getToken, setToken, logout } from "./lib/api";
 
 interface User {
@@ -52,6 +53,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Dashboard onLogout={handleLogout} user={user} />} />
       <Route path="/cloudflare/zones/:zoneId" element={<CloudflareZonePage onLogout={handleLogout} />} />
+      <Route path="/api-docs" element={<ApiDocs />} />
       {user?.role === "superadmin" && (
         <>
           <Route path="/users" element={<UserManagement onLogout={handleLogout} />} />

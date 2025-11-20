@@ -437,7 +437,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
     }
 
     try {
-      const response = await apiRequest("/cloudflare/zones", {
+      const response = await apiRequest<{ success: boolean; name: string; name_servers?: string[] }>("/cloudflare/zones", {
         method: "POST",
         body: JSON.stringify({
           account_id: newZoneAccountId,
@@ -508,6 +508,9 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
           <p className="text-sm text-muted-foreground">Manage SOA/RR and mirrored Cloudflare data</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button variant="outline" onClick={() => navigate("/api-docs")}>
+            API Docs
+          </Button>
           {user?.role === "superadmin" && (
             <>
               <Button variant="outline" onClick={() => navigate("/users")}>

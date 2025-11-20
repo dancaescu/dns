@@ -18,7 +18,7 @@ interface Setting {
 export function Settings({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   const [settings, setSettings] = useState<Setting[]>([]);
-  const [multilelApiUser, setMultitelApiUser] = useState("");
+  const [multitelApiUser, setMultitelApiUser] = useState("");
   const [multitelApiPass, setMultitelApiPass] = useState("");
   const [multitelApiUrl, setMultitelApiUrl] = useState("");
   const [sessionTimeout, setSessionTimeout] = useState("");
