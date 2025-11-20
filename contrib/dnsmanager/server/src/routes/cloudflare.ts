@@ -79,8 +79,13 @@ router.get("/zones/:id/records", async (req, res) => {
 
 router.get("/zones/:id/load-balancers", async (req, res) => {
   const [rows] = await query(
-    `SELECT id, cf_lb_id, name, proxied, enabled, fallback_pool, default_pools, steering_policy
-     FROM cloudflare_load_balancers WHERE zone_id = ? ORDER BY name`,
+    `SELECT lb.id, lb.cf_lb_id, lb.name, lb.proxied, lb.enabled, lb.fallback_pool,
+            lb.default_pools, lb.steering_policy, COUNT(p.id) as pool_count
+     FROM cloudflare_load_balancers lb
+     LEFT JOIN cloudflare_lb_pools p ON p.lb_id = lb.id
+     WHERE lb.zone_id = ?
+     GROUP BY lb.id
+     ORDER BY lb.name`,
     [req.params.id],
   );
   res.json(rows);

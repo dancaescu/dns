@@ -56,6 +56,7 @@ type CloudflareLoadBalancer = {
   fallback_pool: string | null;
   default_pools: string | null;
   steering_policy: string | null;
+  pool_count?: number;
 };
 
 type SoaRecord = {
@@ -689,6 +690,11 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
                           )}
                           {lb.steering_policy && (
                             <span>Policy: {lb.steering_policy}</span>
+                          )}
+                          {lb.pool_count !== undefined && (
+                            <span className="font-medium text-blue-600">
+                              {lb.pool_count} {lb.pool_count === 1 ? 'pool' : 'pools'}
+                            </span>
                           )}
                         </div>
                       </div>
