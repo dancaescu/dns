@@ -77,7 +77,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [rrToDelete, setRrToDelete] = useState<{ id: number; name: string } | null>(null);
   const [rrDeleteConfirm, setRrDeleteConfirm] = useState("");
   const [rrCurrentPage, setRrCurrentPage] = useState(1);
-  const rrRecordsPerPage = 25;
+  const rrRecordsPerPage = 10;
+  const [editFormData, setEditFormData] = useState<Partial<RrRecord>>({});
 
   useEffect(() => {
     refreshSoa();
@@ -254,36 +255,47 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     refreshRr(rrZoneId);
   }
 
-  async function handleRrUpdate(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleRrUpdate() {
     if (!editingRrId || !rrZoneId) return;
-    const formData = new FormData(event.currentTarget);
-    const payload = Object.fromEntries(formData.entries());
-    await apiRequest(`/rr/${editingRrId}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        zone: rrZoneId,
-        name: payload.name,
-        type: payload.type,
-        data: payload.data,
-        aux: Number(payload.aux || 0),
-        ttl: Number(payload.ttl || 86400),
-      }),
-    });
-    setEditingRrId(null);
-    setEditingRrData(null);
-    refreshRr(rrZoneId);
+    try {
+      await apiRequest(`/rr/${editingRrId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          zone: rrZoneId,
+          name: editFormData.name,
+          type: editFormData.type,
+          data: editFormData.data,
+          aux: Number(editFormData.aux || 0),
+          ttl: Number(editFormData.ttl || 86400),
+        }),
+      });
+      setEditingRrId(null);
+      setEditingRrData(null);
+      setEditFormData({});
+      refreshRr(rrZoneId);
+    } catch (error) {
+      console.error("Failed to update record:", error);
+      alert("Failed to update record");
+    }
   }
 
   function startEditRr(rr: RrRecord) {
     setEditingRrId(rr.id);
     setEditingRrData(rr);
+    setEditFormData({
+      name: rr.name,
+      type: rr.type,
+      data: rr.data,
+      aux: rr.aux,
+      ttl: rr.ttl,
+    });
     setShowRrAddForm(false);
   }
 
   function cancelEditRr() {
     setEditingRrId(null);
     setEditingRrData(null);
+    setEditFormData({});
   }
 
   function openRrDeleteModal(rr: RrRecord) {
@@ -551,59 +563,52 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                             {editingRrId === rr.id && editingRrData ? (
                               <>
                                 <TableCell>
-                                  <form id={`edit-rr-${rr.id}`} onSubmit={handleRrUpdate} className="contents">
-                                    <select
-                                      name="type"
-                                      defaultValue={editingRrData.type}
-                                      className="w-full rounded border px-2 py-1 text-sm"
-                                    >
-                                      {["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SRV", "PTR", "RP", "NAPTR", "HINFO"].map((type) => (
-                                        <option key={type}>{type}</option>
-                                      ))}
-                                    </select>
-                                  </form>
+                                  <select
+                                    value={editFormData.type || ""}
+                                    onChange={(e) => setEditFormData({ ...editFormData, type: e.target.value })}
+                                    className="w-full rounded border px-2 py-1 text-sm"
+                                  >
+                                    {["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SRV", "PTR", "RP", "NAPTR", "HINFO"].map((type) => (
+                                      <option key={type}>{type}</option>
+                                    ))}
+                                  </select>
                                 </TableCell>
                                 <TableCell>
                                   <Input
-                                    form={`edit-rr-${rr.id}`}
-                                    name="name"
-                                    defaultValue={editingRrData.name}
+                                    value={editFormData.name || ""}
+                                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
                                     className="text-sm"
                                   />
                                 </TableCell>
                                 <TableCell>
                                   <Input
-                                    form={`edit-rr-${rr.id}`}
-                                    name="data"
-                                    defaultValue={editingRrData.data}
+                                    value={editFormData.data || ""}
+                                    onChange={(e) => setEditFormData({ ...editFormData, data: e.target.value })}
                                     className="text-sm"
                                   />
                                 </TableCell>
                                 <TableCell>
                                   <Input
-                                    form={`edit-rr-${rr.id}`}
-                                    name="aux"
                                     type="number"
-                                    defaultValue={editingRrData.aux}
+                                    value={editFormData.aux ?? 0}
+                                    onChange={(e) => setEditFormData({ ...editFormData, aux: Number(e.target.value) })}
                                     className="w-20 text-sm"
                                   />
                                 </TableCell>
                                 <TableCell>
                                   <Input
-                                    form={`edit-rr-${rr.id}`}
-                                    name="ttl"
                                     type="number"
-                                    defaultValue={editingRrData.ttl}
+                                    value={editFormData.ttl ?? 86400}
+                                    onChange={(e) => setEditFormData({ ...editFormData, ttl: Number(e.target.value) })}
                                     className="w-24 text-sm"
                                   />
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <div className="flex justify-end gap-2">
                                     <Button
-                                      type="submit"
-                                      form={`edit-rr-${rr.id}`}
                                       variant="ghost"
                                       size="sm"
+                                      onClick={handleRrUpdate}
                                       className="text-green-600 hover:text-green-700"
                                     >
                                       Save
