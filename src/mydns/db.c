@@ -120,6 +120,7 @@ db_output_create_tables(void) {
   if (dns_notify_enabled) {
     printf("   also_notify CHAR(255) DEFAULT NULL,\n");
   }
+  puts  ("  date_created timestamp DEFAULT CURRENT_TIMESTAMP,");
   puts  ("  UNIQUE  (origin)");
   puts  (");\n");
 #else
@@ -149,6 +150,7 @@ db_output_create_tables(void) {
   if (dns_notify_enabled) {
     printf("   also_notify CHAR(255) DEFAULT NULL,\n");
   }
+  printf("  date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n");
   printf("  UNIQUE KEY (origin)\n");
   printf(") Engine=%s;\n", mydns_dbengine);
   printf("\n");
@@ -186,6 +188,7 @@ db_output_create_tables(void) {
     printf("  stamp      timestamp NOT NULL default CURRENT_TIMESTAMP,\n");
     printf("  serial     INTEGER DEFAULT NULL,\n");
   }
+  printf("  date_created timestamp DEFAULT CURRENT_TIMESTAMP,\n");
   printf("  UNIQUE (zone,name,type,data");
   if (mydns_rr_extended_data) printf(",edatakey");
   if (mydns_rr_use_active) printf(",active");
@@ -215,6 +218,7 @@ db_output_create_tables(void) {
     printf("  stamp      timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n");
     printf("  serial     INT UNSIGNED DEFAULT NULL,\n");
   }
+  printf("  date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n");
   printf("  UNIQUE KEY rr (zone,name,type,data");
   if (mydns_rr_extended_data) printf(",edatakey");
   if (mydns_rr_use_active) printf(",active");
@@ -242,6 +246,7 @@ db_output_cloudflare_tables(void) {
   puts("  `name` varchar(255) NOT NULL,");
   puts("  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,");
   puts("  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,");
+  puts("  `date_created` timestamp NULL DEFAULT CURRENT_TIMESTAMP,");
   puts("  PRIMARY KEY (`id`),");
   puts("  UNIQUE KEY `cf_account_id` (`cf_account_id`)");
   puts(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;");
@@ -260,6 +265,7 @@ db_output_cloudflare_tables(void) {
   puts("  `last_synced` datetime DEFAULT NULL,");
   puts("  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,");
   puts("  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,");
+  puts("  `date_created` timestamp NULL DEFAULT CURRENT_TIMESTAMP,");
   puts("  PRIMARY KEY (`id`),");
   puts("  UNIQUE KEY `cf_zone_id` (`cf_zone_id`),");
   puts("  KEY `fk_cf_zones_account` (`account_id`)");
@@ -280,6 +286,7 @@ db_output_cloudflare_tables(void) {
   puts("  `modified_on` datetime DEFAULT NULL,");
   puts("  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,");
   puts("  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,");
+  puts("  `date_created` timestamp NULL DEFAULT CURRENT_TIMESTAMP,");
   puts("  PRIMARY KEY (`id`),");
   puts("  UNIQUE KEY `uniq_zone_record` (`zone_id`,`cf_record_id`),");
   puts("  KEY `idx_zone_name_type` (`zone_id`,`name`(191),`record_type`)");
@@ -299,6 +306,7 @@ db_output_cloudflare_tables(void) {
   puts("  `data` longtext,");
   puts("  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,");
   puts("  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,");
+  puts("  `date_created` timestamp NULL DEFAULT CURRENT_TIMESTAMP,");
   puts("  PRIMARY KEY (`id`),");
   puts("  UNIQUE KEY `uniq_zone_lb` (`zone_id`,`cf_lb_id`)");
   puts(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;");
