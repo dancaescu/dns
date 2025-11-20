@@ -304,6 +304,23 @@ class CloudflareClient:
             logging.warning("Skipping load balancers for %s: %s", zone_id, exc)
             return []
 
+    def list_pools(self, account_id: str) -> List[Dict]:
+        """List all load balancer pools for an account."""
+        try:
+            return self.paginated_get(f"/accounts/{account_id}/load_balancers/pools", per_page=50)
+        except CloudflareError as exc:
+            logging.warning("Skipping pools for account %s: %s", account_id, exc)
+            return []
+
+    def get_pool(self, account_id: str, pool_id: str) -> Optional[Dict]:
+        """Get details for a specific pool including origins."""
+        try:
+            result = self.request("GET", f"/accounts/{account_id}/load_balancers/pools/{pool_id}")
+            return result.get("result")
+        except CloudflareError as exc:
+            logging.warning("Failed to fetch pool %s: %s", pool_id, exc)
+            return None
+
 
 def upsert_account(cursor, cf_account_id: str, name: str) -> int:
     sql = """
@@ -411,23 +428,188 @@ def replace_zone_load_balancers(cursor, zone_id: int, balancers: Sequence[Dict])
     return len(balancers)
 
 
-def sync_zone(conn, cf_client: CloudflareClient, account_id: int, zone: Dict) -> Tuple[int, int]:
+def sync_load_balancer_pools(cursor, cf_client: CloudflareClient, cf_account_id: str, zone_id: int) -> int:
+    """Fetch and sync pools for all load balancers in a zone."""
+    # Get all load balancers for this zone
+    cursor.execute(
+        "SELECT id, cf_lb_id, default_pools FROM cloudflare_load_balancers WHERE zone_id = %s",
+        (zone_id,)
+    )
+    load_balancers = cursor.fetchall()
+
+    if not load_balancers:
+        return 0
+
+    # Collect all unique pool IDs referenced by load balancers
+    pool_ids = set()
+    lb_id_map = {}  # Map cf_lb_id to local lb id
+
+    for lb in load_balancers:
+        lb_id, cf_lb_id, default_pools_json = lb[0], lb[1], lb[2]
+        lb_id_map[cf_lb_id] = lb_id
+
+        if default_pools_json:
+            try:
+                pool_list = json.loads(default_pools_json) if isinstance(default_pools_json, str) else default_pools_json
+                if isinstance(pool_list, list):
+                    pool_ids.update(pool_list)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    if not pool_ids:
+        return 0
+
+    # Fetch full pool details from Cloudflare and sync to database
+    pool_count = 0
+    for pool_id in pool_ids:
+        pool_data = cf_client.get_pool(cf_account_id, pool_id)
+        if not pool_data:
+            continue
+
+        # Find which load balancers use this pool
+        for lb in load_balancers:
+            lb_id, cf_lb_id, default_pools_json = lb[0], lb[1], lb[2]
+
+            if default_pools_json:
+                try:
+                    pool_list = json.loads(default_pools_json) if isinstance(default_pools_json, str) else default_pools_json
+                    if pool_id in pool_list:
+                        # Insert or update pool
+                        upsert_pool(cursor, lb_id, pool_data)
+                        # Sync origins for this pool
+                        sync_pool_origins(cursor, lb_id, pool_id, pool_data.get("origins", []))
+                        pool_count += 1
+                        break  # Only insert once per pool
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+    return pool_count
+
+
+def upsert_pool(cursor, lb_id: int, pool: Dict) -> int:
+    """Insert or update a pool in the database."""
+    # Check if pool already exists
+    cursor.execute(
+        "SELECT id FROM cloudflare_lb_pools WHERE lb_id = %s AND cf_pool_id = %s",
+        (lb_id, pool.get("id"))
+    )
+    existing = cursor.fetchone()
+
+    if existing:
+        # Update existing pool
+        cursor.execute(
+            """UPDATE cloudflare_lb_pools SET
+                name = %s, description = %s, enabled = %s, minimum_origins = %s,
+                monitor = %s, health_check_regions = %s, latitude = %s, longitude = %s,
+                origin_steering_policy = %s, updated_at = NOW()
+               WHERE id = %s""",
+            (
+                pool.get("name"),
+                pool.get("description"),
+                1 if pool.get("enabled", True) else 0,
+                pool.get("minimum_origins", 1),
+                pool.get("monitor"),
+                json.dumps(pool.get("check_regions")) if pool.get("check_regions") else None,
+                pool.get("latitude"),
+                pool.get("longitude"),
+                pool.get("origin_steering", {}).get("policy", "random"),
+                existing[0]
+            )
+        )
+        return existing[0]
+    else:
+        # Insert new pool
+        cursor.execute(
+            """INSERT INTO cloudflare_lb_pools
+                (lb_id, cf_pool_id, name, description, enabled, minimum_origins, monitor,
+                 health_check_regions, latitude, longitude, origin_steering_policy)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                lb_id,
+                pool.get("id"),
+                pool.get("name"),
+                pool.get("description"),
+                1 if pool.get("enabled", True) else 0,
+                pool.get("minimum_origins", 1),
+                pool.get("monitor"),
+                json.dumps(pool.get("check_regions")) if pool.get("check_regions") else None,
+                pool.get("latitude"),
+                pool.get("longitude"),
+                pool.get("origin_steering", {}).get("policy", "random")
+            )
+        )
+        return cursor.lastrowid
+
+
+def sync_pool_origins(cursor, lb_id: int, cf_pool_id: str, origins: List[Dict]) -> int:
+    """Sync origins for a pool."""
+    # Get the local pool ID
+    cursor.execute(
+        "SELECT id FROM cloudflare_lb_pools WHERE lb_id = %s AND cf_pool_id = %s",
+        (lb_id, cf_pool_id)
+    )
+    pool_row = cursor.fetchone()
+    if not pool_row:
+        return 0
+
+    pool_id = pool_row[0]
+
+    # Delete existing origins for this pool
+    cursor.execute("DELETE FROM cloudflare_lb_pool_origins WHERE pool_id = %s", (pool_id,))
+
+    if not origins:
+        return 0
+
+    # Insert origins
+    insert_sql = """
+        INSERT INTO cloudflare_lb_pool_origins
+            (pool_id, name, address, enabled, weight, port, header_host)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+    """
+    payloads = []
+    for origin in origins:
+        payloads.append((
+            pool_id,
+            origin.get("name"),
+            origin.get("address"),
+            1 if origin.get("enabled", True) else 0,
+            origin.get("weight", 1.0),
+            origin.get("port"),
+            origin.get("header", {}).get("Host") if isinstance(origin.get("header"), dict) else None
+        ))
+
+    cursor.executemany(insert_sql, payloads)
+    return len(origins)
+
+
+def sync_zone(conn, cf_client: CloudflareClient, account_id: int, zone: Dict) -> Tuple[int, int, int]:
     records = cf_client.list_records(zone["id"])
     balancers = cf_client.list_load_balancers(zone["id"])
+
+    # Get CF account ID for pool syncing
+    account_data = zone.get("account") or {}
+    cf_account_id = account_data.get("id", "")
+
     with conn.cursor() as cursor:
         local_zone_id = upsert_zone(cursor, account_id, zone)
         record_count = replace_zone_records(cursor, local_zone_id, records)
         lb_count = replace_zone_load_balancers(cursor, local_zone_id, balancers)
+
+        # Sync pools and origins for load balancers
+        pool_count = 0
+        if lb_count > 0 and cf_account_id:
+            pool_count = sync_load_balancer_pools(cursor, cf_client, cf_account_id, local_zone_id)
+
         cursor.execute(
             "UPDATE cloudflare_zones SET last_synced = NOW(), updated_at = NOW() WHERE id = %s",
             (local_zone_id,),
         )
     conn.commit()
-    return record_count, lb_count
+    return record_count, lb_count, pool_count
 
 
 def sync_accounts(conn, cf_client: CloudflareClient, account_ids: Sequence[str]) -> Dict[str, int]:
-    summary = {"zones": 0, "records": 0, "load_balancers": 0}
+    summary = {"zones": 0, "records": 0, "load_balancers": 0, "pools": 0}
     for account_id in account_ids:
         logging.info("Syncing account %s", account_id)
         try:
@@ -453,7 +635,7 @@ def sync_accounts(conn, cf_client: CloudflareClient, account_ids: Sequence[str])
             conn.commit()
 
             try:
-                record_count, lb_count = sync_zone(conn, cf_client, db_account_id, zone)
+                record_count, lb_count, pool_count = sync_zone(conn, cf_client, db_account_id, zone)
             except CloudflareError as exc:
                 conn.rollback()
                 logging.error("Failed to sync zone %s (%s): %s", zone.get("name"), zone_id, exc)
@@ -461,12 +643,14 @@ def sync_accounts(conn, cf_client: CloudflareClient, account_ids: Sequence[str])
             summary["zones"] += 1
             summary["records"] += record_count
             summary["load_balancers"] += lb_count
+            summary["pools"] += pool_count
             logging.info(
-                "Synced zone %s (%s): %s records, %s load balancers",
+                "Synced zone %s (%s): %s records, %s load balancers, %s pools",
                 zone.get("name"),
                 zone_id,
                 record_count,
                 lb_count,
+                pool_count,
             )
     return summary
 
@@ -516,10 +700,11 @@ def main() -> int:
         conn.close()
 
     logging.info(
-        "Cloudflare sync completed: zones=%d records=%d load_balancers=%d",
+        "Cloudflare sync completed: zones=%d records=%d load_balancers=%d pools=%d",
         summary["zones"],
         summary["records"],
         summary["load_balancers"],
+        summary["pools"],
     )
     return 0
 
