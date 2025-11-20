@@ -503,8 +503,9 @@ router.post("/load-balancers/:lbId/pools", async (req, res) => {
     const result = await execute(
       `INSERT INTO cloudflare_lb_pools
        (lb_id, cf_pool_id, name, description, enabled, minimum_origins, monitor,
-        notification_email, health_check_regions, origin_steering_policy)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        notification_email, notification_enabled, notification_health_status,
+        health_check_regions, origin_steering_policy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         lbId,
         poolData.cf_pool_id || `offline-${Date.now()}`,
@@ -514,6 +515,8 @@ router.post("/load-balancers/:lbId/pools", async (req, res) => {
         poolData.minimum_origins || 1,
         poolData.monitor || 'http',
         poolData.notification_email || null,
+        poolData.notification_enabled ? 1 : 0,
+        poolData.notification_health_status || 'either',
         Array.isArray(poolData.health_check_regions) ? poolData.health_check_regions.join(',') : null,
         poolData.origin_steering_policy || 'random',
       ]
@@ -564,7 +567,8 @@ router.put("/pools/:poolId", async (req, res) => {
     await execute(
       `UPDATE cloudflare_lb_pools SET
        name = ?, description = ?, enabled = ?, minimum_origins = ?,
-       monitor = ?, notification_email = ?, health_check_regions = ?,
+       monitor = ?, notification_email = ?, notification_enabled = ?,
+       notification_health_status = ?, health_check_regions = ?,
        origin_steering_policy = ?
        WHERE id = ?`,
       [
@@ -574,6 +578,8 @@ router.put("/pools/:poolId", async (req, res) => {
         poolData.minimum_origins || 1,
         poolData.monitor || 'http',
         poolData.notification_email || null,
+        poolData.notification_enabled ? 1 : 0,
+        poolData.notification_health_status || 'either',
         Array.isArray(poolData.health_check_regions) ? poolData.health_check_regions.join(',') : null,
         poolData.origin_steering_policy || 'random',
         poolId,

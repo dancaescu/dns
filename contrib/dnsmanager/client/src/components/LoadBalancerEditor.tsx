@@ -3,6 +3,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { toast } from "./ui/toast";
+import { PoolNotificationSettings, PoolNotificationConfig } from "./PoolNotificationSettings";
 
 export type LBPool = {
   id?: number;
@@ -13,6 +14,8 @@ export type LBPool = {
   minimum_origins: number;
   monitor: string;
   notification_email: string;
+  notification_enabled: boolean;
+  notification_health_status: "healthy" | "unhealthy" | "either";
   health_check_regions: string[];
   origin_steering_policy: string;
   origins: LBOrigin[];
@@ -94,6 +97,8 @@ export function LoadBalancerEditor({
           minimum_origins: 1,
           monitor: "http",
           notification_email: "",
+          notification_enabled: false,
+          notification_health_status: "either",
           health_check_regions: ["WNAM"],
           origin_steering_policy: "random",
           origins: [],
@@ -370,16 +375,23 @@ export function LoadBalancerEditor({
                         </div>
                       </div>
 
-                      <div>
-                        <Label>Notification Email (comma-separated)</Label>
-                        <Input
-                          value={pool.notification_email}
-                          onChange={(e) =>
-                            updatePool(poolIndex, { notification_email: e.target.value })
-                          }
-                          placeholder="emergency@multitel.net, dan.caescu@multitel.net"
-                        />
-                      </div>
+                      <PoolNotificationSettings
+                        value={{
+                          enabled: pool.notification_enabled,
+                          healthStatus: pool.notification_health_status,
+                          emails: pool.notification_email
+                            ? pool.notification_email.split(",").map((e) => e.trim()).filter((e) => e)
+                            : [],
+                        }}
+                        onChange={(config) => {
+                          updatePool(poolIndex, {
+                            notification_enabled: config.enabled,
+                            notification_health_status: config.healthStatus,
+                            notification_email: config.emails.join(","),
+                          });
+                        }}
+                        poolName={pool.name}
+                      />
 
                       {/* Origins */}
                       <div className="border-t pt-3">

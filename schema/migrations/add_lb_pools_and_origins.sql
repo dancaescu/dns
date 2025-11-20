@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS `cloudflare_lb_pools` (
   `minimum_origins` int DEFAULT 1,
   `monitor` varchar(64) DEFAULT NULL,
   `notification_email` text,
+  `notification_enabled` tinyint(1) DEFAULT 0,
+  `notification_health_status` varchar(16) DEFAULT 'either',
   `health_check_regions` text,
   `latitude` decimal(10, 7) DEFAULT NULL,
   `longitude` decimal(10, 7) DEFAULT NULL,

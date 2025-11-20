@@ -10,6 +10,24 @@ Migrations follow this naming pattern:
 
 ## Available Migrations
 
+### 2025-11-20: Add Pool Notification Settings
+
+**Purpose**: Adds notification configuration fields to load balancer pools for health check alerts.
+
+**Fields Added**:
+- `notification_enabled`: Toggle to enable/disable notifications
+- `notification_health_status`: Filter for health status alerts (healthy, unhealthy, either)
+
+**Forward Migration**:
+```bash
+mysql -u <user> -p <database> < migrations/add_pool_notification_settings.sql
+```
+
+**Rollback**:
+```bash
+mysql -u <user> -p <database> < migrations/rollback_add_pool_notification_settings.sql
+```
+
 ### 2025-11-20: Add Load Balancer Pools and Origins Tables
 
 **Purpose**: Creates dedicated tables for managing load balancer pools and their origins/endpoints with full CRUD capabilities including health monitoring, weight distribution, and steering policies.
