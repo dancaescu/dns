@@ -110,3 +110,57 @@ export function deleteCloudflareLoadBalancer(lbId: number, syncRemote: boolean) 
     body: JSON.stringify({ syncRemote }),
   });
 }
+
+// Pool API functions
+export function getLoadBalancerPools<T = any>(lbId: number) {
+  return apiRequest<T>(`/cloudflare/load-balancers/${lbId}/pools`);
+}
+
+export function getPool<T = any>(poolId: number) {
+  return apiRequest<T>(`/cloudflare/pools/${poolId}`);
+}
+
+export function createPool(lbId: number, pool: any) {
+  return apiRequest(`/cloudflare/load-balancers/${lbId}/pools`, {
+    method: "POST",
+    body: JSON.stringify(pool),
+  });
+}
+
+export function updatePool(poolId: number, pool: any) {
+  return apiRequest(`/cloudflare/pools/${poolId}`, {
+    method: "PUT",
+    body: JSON.stringify(pool),
+  });
+}
+
+export function deletePool(poolId: number) {
+  return apiRequest(`/cloudflare/pools/${poolId}`, {
+    method: "DELETE",
+  });
+}
+
+// Origin API functions
+export function getPoolOrigins<T = any>(poolId: number) {
+  return apiRequest<T>(`/cloudflare/pools/${poolId}/origins`);
+}
+
+export function createOrigin(poolId: number, origin: any) {
+  return apiRequest(`/cloudflare/pools/${poolId}/origins`, {
+    method: "POST",
+    body: JSON.stringify(origin),
+  });
+}
+
+export function updateOrigin(originId: number, origin: any) {
+  return apiRequest(`/cloudflare/origins/${originId}`, {
+    method: "PUT",
+    body: JSON.stringify(origin),
+  });
+}
+
+export function deleteOrigin(originId: number) {
+  return apiRequest(`/cloudflare/origins/${originId}`, {
+    method: "DELETE",
+  });
+}

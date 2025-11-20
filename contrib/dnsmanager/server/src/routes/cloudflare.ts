@@ -452,4 +452,269 @@ router.delete("/load-balancers/:lbId", async (req, res) => {
   }
 });
 
+// Pool routes
+router.get("/load-balancers/:lbId/pools", async (req, res) => {
+  const lbId = Number(req.params.lbId);
+  if (!Number.isInteger(lbId)) {
+    return res.status(400).json({ message: "Invalid load balancer id" });
+  }
+
+  const [pools] = await query(
+    `SELECT p.*,
+     (SELECT COUNT(*) FROM cloudflare_lb_pool_origins WHERE pool_id = p.id) as origin_count
+     FROM cloudflare_lb_pools p WHERE p.lb_id = ? ORDER BY p.id ASC`,
+    [lbId]
+  );
+  res.json(pools);
+});
+
+router.get("/pools/:poolId", async (req, res) => {
+  const poolId = Number(req.params.poolId);
+  if (!Number.isInteger(poolId)) {
+    return res.status(400).json({ message: "Invalid pool id" });
+  }
+
+  const [pools] = await query(
+    "SELECT * FROM cloudflare_lb_pools WHERE id = ?",
+    [poolId]
+  );
+
+  if (!pools.length) {
+    return res.status(404).json({ message: "Pool not found" });
+  }
+
+  const [origins] = await query(
+    "SELECT * FROM cloudflare_lb_pool_origins WHERE pool_id = ? ORDER BY id ASC",
+    [poolId]
+  );
+
+  res.json({ ...pools[0], origins });
+});
+
+router.post("/load-balancers/:lbId/pools", async (req, res) => {
+  const lbId = Number(req.params.lbId);
+  if (!Number.isInteger(lbId)) {
+    return res.status(400).json({ message: "Invalid load balancer id" });
+  }
+
+  const poolData = req.body;
+
+  try {
+    const result = await execute(
+      `INSERT INTO cloudflare_lb_pools
+       (lb_id, cf_pool_id, name, description, enabled, minimum_origins, monitor,
+        notification_email, health_check_regions, origin_steering_policy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        lbId,
+        poolData.cf_pool_id || `offline-${Date.now()}`,
+        poolData.name,
+        poolData.description || null,
+        poolData.enabled ? 1 : 0,
+        poolData.minimum_origins || 1,
+        poolData.monitor || 'http',
+        poolData.notification_email || null,
+        Array.isArray(poolData.health_check_regions) ? poolData.health_check_regions.join(',') : null,
+        poolData.origin_steering_policy || 'random',
+      ]
+    );
+
+    const poolId = result.insertId;
+
+    // Insert origins if provided
+    if (poolData.origins && Array.isArray(poolData.origins)) {
+      for (const origin of poolData.origins) {
+        await execute(
+          `INSERT INTO cloudflare_lb_pool_origins
+           (pool_id, name, address, enabled, weight, port, header_host)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            poolId,
+            origin.name,
+            origin.address,
+            origin.enabled ? 1 : 0,
+            origin.weight || 1,
+            origin.port || null,
+            origin.header_host || null,
+          ]
+        );
+      }
+    }
+
+    const [newPool] = await query(
+      "SELECT * FROM cloudflare_lb_pools WHERE id = ?",
+      [poolId]
+    );
+
+    res.json(newPool[0]);
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : "Failed to create pool" });
+  }
+});
+
+router.put("/pools/:poolId", async (req, res) => {
+  const poolId = Number(req.params.poolId);
+  if (!Number.isInteger(poolId)) {
+    return res.status(400).json({ message: "Invalid pool id" });
+  }
+
+  const poolData = req.body;
+
+  try {
+    await execute(
+      `UPDATE cloudflare_lb_pools SET
+       name = ?, description = ?, enabled = ?, minimum_origins = ?,
+       monitor = ?, notification_email = ?, health_check_regions = ?,
+       origin_steering_policy = ?
+       WHERE id = ?`,
+      [
+        poolData.name,
+        poolData.description || null,
+        poolData.enabled ? 1 : 0,
+        poolData.minimum_origins || 1,
+        poolData.monitor || 'http',
+        poolData.notification_email || null,
+        Array.isArray(poolData.health_check_regions) ? poolData.health_check_regions.join(',') : null,
+        poolData.origin_steering_policy || 'random',
+        poolId,
+      ]
+    );
+
+    // Update origins if provided
+    if (poolData.origins && Array.isArray(poolData.origins)) {
+      // Delete existing origins
+      await execute("DELETE FROM cloudflare_lb_pool_origins WHERE pool_id = ?", [poolId]);
+
+      // Insert new origins
+      for (const origin of poolData.origins) {
+        await execute(
+          `INSERT INTO cloudflare_lb_pool_origins
+           (pool_id, name, address, enabled, weight, port, header_host)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            poolId,
+            origin.name,
+            origin.address,
+            origin.enabled ? 1 : 0,
+            origin.weight || 1,
+            origin.port || null,
+            origin.header_host || null,
+          ]
+        );
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : "Failed to update pool" });
+  }
+});
+
+router.delete("/pools/:poolId", async (req, res) => {
+  const poolId = Number(req.params.poolId);
+  if (!Number.isInteger(poolId)) {
+    return res.status(400).json({ message: "Invalid pool id" });
+  }
+
+  try {
+    await execute("DELETE FROM cloudflare_lb_pools WHERE id = ?", [poolId]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : "Failed to delete pool" });
+  }
+});
+
+// Origin routes
+router.get("/pools/:poolId/origins", async (req, res) => {
+  const poolId = Number(req.params.poolId);
+  if (!Number.isInteger(poolId)) {
+    return res.status(400).json({ message: "Invalid pool id" });
+  }
+
+  const [origins] = await query(
+    "SELECT * FROM cloudflare_lb_pool_origins WHERE pool_id = ? ORDER BY id ASC",
+    [poolId]
+  );
+  res.json(origins);
+});
+
+router.post("/pools/:poolId/origins", async (req, res) => {
+  const poolId = Number(req.params.poolId);
+  if (!Number.isInteger(poolId)) {
+    return res.status(400).json({ message: "Invalid pool id" });
+  }
+
+  const originData = req.body;
+
+  try {
+    const result = await execute(
+      `INSERT INTO cloudflare_lb_pool_origins
+       (pool_id, name, address, enabled, weight, port, header_host)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        poolId,
+        originData.name,
+        originData.address,
+        originData.enabled ? 1 : 0,
+        originData.weight || 1,
+        originData.port || null,
+        originData.header_host || null,
+      ]
+    );
+
+    const [newOrigin] = await query(
+      "SELECT * FROM cloudflare_lb_pool_origins WHERE id = ?",
+      [result.insertId]
+    );
+
+    res.json(newOrigin[0]);
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : "Failed to create origin" });
+  }
+});
+
+router.put("/origins/:originId", async (req, res) => {
+  const originId = Number(req.params.originId);
+  if (!Number.isInteger(originId)) {
+    return res.status(400).json({ message: "Invalid origin id" });
+  }
+
+  const originData = req.body;
+
+  try {
+    await execute(
+      `UPDATE cloudflare_lb_pool_origins SET
+       name = ?, address = ?, enabled = ?, weight = ?, port = ?, header_host = ?
+       WHERE id = ?`,
+      [
+        originData.name,
+        originData.address,
+        originData.enabled ? 1 : 0,
+        originData.weight || 1,
+        originData.port || null,
+        originData.header_host || null,
+        originId,
+      ]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : "Failed to update origin" });
+  }
+});
+
+router.delete("/origins/:originId", async (req, res) => {
+  const originId = Number(req.params.originId);
+  if (!Number.isInteger(originId)) {
+    return res.status(400).json({ message: "Invalid origin id" });
+  }
+
+  try {
+    await execute("DELETE FROM cloudflare_lb_pool_origins WHERE id = ?", [originId]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : "Failed to delete origin" });
+  }
+});
+
 export default router;

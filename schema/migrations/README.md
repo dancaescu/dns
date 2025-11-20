@@ -10,6 +10,24 @@ Migrations follow this naming pattern:
 
 ## Available Migrations
 
+### 2025-11-20: Add Load Balancer Pools and Origins Tables
+
+**Purpose**: Creates dedicated tables for managing load balancer pools and their origins/endpoints with full CRUD capabilities including health monitoring, weight distribution, and steering policies.
+
+**Tables Created**:
+- `cloudflare_lb_pools`: Pool configuration with monitoring, steering policy, and notification settings
+- `cloudflare_lb_pool_origins`: Individual endpoints within pools with weight, port, and header configuration
+
+**Forward Migration**:
+```bash
+mysql -u <user> -p <database> < migrations/add_lb_pools_and_origins.sql
+```
+
+**Rollback**:
+```bash
+mysql -u <user> -p <database> < migrations/rollback_add_lb_pools_and_origins.sql
+```
+
 ### 2025-11-20: Add Comment and Tags to Cloudflare Records
 
 **Purpose**: Adds support for Cloudflare's `comment` and `tags` fields to the `cloudflare_records` table.

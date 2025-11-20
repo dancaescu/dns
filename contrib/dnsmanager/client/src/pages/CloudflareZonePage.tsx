@@ -22,6 +22,7 @@ import { RECORD_TYPE_LIST, RECORD_TYPES, TTL_OPTIONS, getTTLLabel } from "../lib
 import { toast, ToastContainer } from "../components/ui/toast";
 import { TagInput } from "../components/ui/tag-input";
 import { SyncModal, SyncMode } from "../components/SyncModal";
+import { LoadBalancerEditor } from "../components/LoadBalancerEditor";
 
 type CloudflareZoneDetail = {
   id: number;
@@ -105,16 +106,8 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
   const [recordsPerPage] = useState(50);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
 
-  const [showLbForm, setShowLbForm] = useState(false);
-  const [editingLbId, setEditingLbId] = useState<number | null>(null);
-  const [lbForm, setLbForm] = useState({
-    name: "",
-    enabled: true,
-    proxied: false,
-    fallback_pool: "",
-    default_pools: [] as string[],
-    steering_policy: "off",
-  });
+  const [showLbEditor, setShowLbEditor] = useState(false);
+  const [editingLoadBalancer, setEditingLoadBalancer] = useState<any>(null);
   const [lbToDelete, setLbToDelete] = useState<{ id: number; name: string } | null>(null);
   const [lbDeleteModalOpen, setLbDeleteModalOpen] = useState(false);
   const [lbDeleteConfirmText, setLbDeleteConfirmText] = useState("");
@@ -436,60 +429,41 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
   }
 
   function startAddLoadBalancer() {
-    setEditingLbId(null);
-    setLbForm({
-      name: "",
-      enabled: true,
-      proxied: false,
-      fallback_pool: "",
-      default_pools: [],
-      steering_policy: "off",
-    });
-    setShowLbForm(true);
+    setEditingLoadBalancer(null);
+    setShowLbEditor(true);
   }
 
-  function startEditLoadBalancer(lb: CloudflareLoadBalancer) {
-    setEditingLbId(lb.id);
-    let defaultPools: string[] = [];
-    try {
-      defaultPools = lb.default_pools ? JSON.parse(lb.default_pools) : [];
-    } catch (e) {
-      console.error("Failed to parse default_pools:", e);
-    }
-    setLbForm({
-      name: lb.name,
-      enabled: Boolean(lb.enabled),
-      proxied: Boolean(lb.proxied),
-      fallback_pool: lb.fallback_pool || "",
-      default_pools: defaultPools,
-      steering_policy: lb.steering_policy || "off",
-    });
-    setShowLbForm(true);
+  async function startEditLoadBalancer(lb: CloudflareLoadBalancer) {
+    // Load pools and origins for this load balancer
+    // For now, just pass the LB data, will need API to fetch pools/origins
+    setEditingLoadBalancer(lb);
+    setShowLbEditor(true);
   }
 
-  async function handleSaveLoadBalancer(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSaveLoadBalancer(lbData: any) {
     setRecordLoading(true);
     try {
       const payload = {
-        name: lbForm.name,
-        enabled: lbForm.enabled,
-        proxied: lbForm.proxied,
-        fallback_pool: lbForm.fallback_pool || null,
-        default_pools: lbForm.default_pools,
-        steering_policy: lbForm.steering_policy,
+        name: lbData.name,
+        enabled: lbData.enabled,
+        proxied: lbData.proxied,
+        ttl: lbData.ttl || 30,
+        steering_policy: lbData.steering_policy,
+        session_affinity: lbData.session_affinity || "none",
+        session_affinity_ttl: lbData.session_affinity_ttl || 82800,
+        pools: lbData.pools,
       };
 
-      if (editingLbId) {
-        await updateCloudflareLoadBalancer(editingLbId, payload, syncRemote);
+      if (editingLoadBalancer) {
+        await updateCloudflareLoadBalancer(editingLoadBalancer.id, payload, syncRemote);
         toast.success("Load balancer updated successfully");
       } else {
         await createCloudflareLoadBalancer(numericZoneId, payload, syncRemote);
         toast.success("Load balancer created successfully");
       }
 
-      setShowLbForm(false);
-      setEditingLbId(null);
+      setShowLbEditor(false);
+      setEditingLoadBalancer(null);
       await loadZoneLoadBalancers(numericZoneId);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to save load balancer";
@@ -662,70 +636,6 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
             </Button>
           </CardHeader>
           <CardContent>
-            {showLbForm && (
-              <form onSubmit={handleSaveLoadBalancer} className="mb-6 space-y-4 rounded-lg border bg-white p-4">
-                <h4 className="font-semibold">{editingLbId ? "Edit Load Balancer" : "Add Load Balancer"}</h4>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div>
-                    <Label htmlFor="lb-name">Name (required)</Label>
-                    <Input
-                      id="lb-name"
-                      value={lbForm.name}
-                      onChange={(e) => setLbForm((prev) => ({ ...prev, name: e.target.value }))}
-                      required
-                      placeholder="e.g., api.example.com"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="lb-steering">Steering Policy</Label>
-                    <select
-                      id="lb-steering"
-                      className="w-full rounded-md border px-3 py-2 text-sm"
-                      value={lbForm.steering_policy}
-                      onChange={(e) => setLbForm((prev) => ({ ...prev, steering_policy: e.target.value }))}
-                    >
-                      <option value="off">Off</option>
-                      <option value="geo">Geo</option>
-                      <option value="random">Random</option>
-                      <option value="dynamic_latency">Dynamic Latency</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={lbForm.enabled}
-                      onChange={(e) => setLbForm((prev) => ({ ...prev, enabled: e.target.checked }))}
-                    />
-                    <span>Enabled</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={lbForm.proxied}
-                      onChange={(e) => setLbForm((prev) => ({ ...prev, proxied: e.target.checked }))}
-                    />
-                    <span>Proxied</span>
-                  </label>
-                </div>
-                <div className="flex justify-end gap-2 border-t pt-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setShowLbForm(false);
-                      setEditingLbId(null);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={recordLoading}>
-                    {recordLoading ? "Saving..." : editingLbId ? "Update" : "Create"}
-                  </Button>
-                </div>
-              </form>
-            )}
             {loadBalancers.length === 0 ? (
               <p className="text-sm text-gray-500">No load balancers configured for this zone.</p>
             ) : (
@@ -1249,6 +1159,17 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
       )}
+
+      <LoadBalancerEditor
+        isOpen={showLbEditor}
+        onClose={() => {
+          setShowLbEditor(false);
+          setEditingLoadBalancer(null);
+        }}
+        onSave={handleSaveLoadBalancer}
+        loadBalancer={editingLoadBalancer}
+        zoneName={zone?.name || ""}
+      />
     </div>
   );
 }
