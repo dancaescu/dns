@@ -60,3 +60,76 @@ An example of a command-line PHP script that captures the query log lines
 from "mydns --verbose" and does something with the data.
 
 
+dnsmanager/
+---------------------------------------------------------------------------
+
+A modern web-based DNS management interface for MyDNS with full Cloudflare
+integration. Built with React/TypeScript frontend and Node.js/Express backend.
+
+Features:
+  - Complete SOA and Resource Record management
+  - Cloudflare zones, DNS records, and load balancer synchronization
+  - User management with role-based access control (superadmin/admin/user)
+  - API token system for programmatic access
+  - Two-factor authentication (2FA) support
+  - Support ticket system with screenshot capture and email notifications
+  - Real-time health monitoring for Cloudflare load balancer pools
+
+Installation requires Node.js and npm. See dnsmanager/README.md for detailed
+setup instructions including database migrations, environment configuration,
+and deployment steps.
+
+
+sync_cloudflare_records.py:
+---------------------------------------------------------------------------
+
+Synchronizes Cloudflare accounts, zones, and DNS records into the local
+MyDNS database. This script mirrors Cloudflare data to local MySQL tables
+for unified management and can be executed from cron for periodic syncing.
+
+Reads configuration from:
+  - /etc/mydns/cloudflare.ini (Cloudflare credentials and account IDs)
+  - /etc/mydns/mydns.conf (database connection details with failover support)
+
+Requires: pymysql, requests
+
+
+sync_pools_direct.py:
+---------------------------------------------------------------------------
+
+Fetches Cloudflare load balancer pools and origins directly from the
+Cloudflare API and synchronizes them to the local database. Updates pool
+configurations, origin health status, and associated metadata.
+
+Reads configuration from /etc/mydns/cloudflare.ini and /etc/mydns/mydns.conf.
+
+Requires: pymysql, requests
+
+
+check_pool_cf.py:
+---------------------------------------------------------------------------
+
+Diagnostic utility to query and display Cloudflare load balancer pool data
+directly from the Cloudflare API. Useful for debugging pool configurations
+and verifying API connectivity.
+
+Edit the script to set EMAIL, API_KEY, ACCOUNT_ID, and POOL_ID before use.
+
+Requires: requests
+
+
+check_mydns.py:
+---------------------------------------------------------------------------
+
+NRPE/Icinga monitoring plugin for MyDNS. Verifies that all configured
+database hosts are reachable, the mydns daemon process is running, and
+optionally tests DNS query responses using dig.
+
+Example NRPE command:
+  command[check_mydns]=/usr/local/lib/nagios/plugins/check_mydns.py \
+      --config /etc/mydns/mydns.conf \
+      --query-name example.com --query-type SOA --server 127.0.0.1
+
+Returns standard Nagios exit codes (OK/WARNING/CRITICAL/UNKNOWN).
+
+
