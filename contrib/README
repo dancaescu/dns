@@ -62,6 +62,7 @@ from "mydns --verbose" and does something with the data.
 
 dnsmanager/
 ---------------------------------------------------------------------------
+by Dan Caescu <dan.caescu@multitel.net>
 
 A modern web-based DNS management interface for MyDNS with full Cloudflare
 integration. Built with React/TypeScript frontend and Node.js/Express backend.
@@ -82,6 +83,7 @@ and deployment steps.
 
 sync_cloudflare_records.py:
 ---------------------------------------------------------------------------
+by Dan Caescu <dan.caescu@multitel.net>
 
 Synchronizes Cloudflare accounts, zones, and DNS records into the local
 MyDNS database. This script mirrors Cloudflare data to local MySQL tables
@@ -96,6 +98,7 @@ Requires: pymysql, requests
 
 sync_pools_direct.py:
 ---------------------------------------------------------------------------
+by Dan Caescu <dan.caescu@multitel.net>
 
 Fetches Cloudflare load balancer pools and origins directly from the
 Cloudflare API and synchronizes them to the local database. Updates pool
@@ -108,6 +111,7 @@ Requires: pymysql, requests
 
 check_pool_cf.py:
 ---------------------------------------------------------------------------
+by Dan Caescu <dan.caescu@multitel.net>
 
 Diagnostic utility to query and display Cloudflare load balancer pool data
 directly from the Cloudflare API. Useful for debugging pool configurations
@@ -120,6 +124,7 @@ Requires: requests
 
 check_mydns.py:
 ---------------------------------------------------------------------------
+by Dan Caescu <dan.caescu@multitel.net>
 
 NRPE/Icinga monitoring plugin for MyDNS. Verifies that all configured
 database hosts are reachable, the mydns daemon process is running, and
