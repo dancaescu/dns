@@ -9,6 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { apiRequest } from "../lib/api";
 import { Star } from "lucide-react";
 import { cn } from "../lib/utils";
+import { TicketModal } from "../components/TicketModal";
+import html2canvas from "html2canvas";
 
 interface SoaRecord {
   id: number;
@@ -89,6 +91,9 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
   const [newZoneAccountId, setNewZoneAccountId] = useState<number | null>(null);
   const [newZoneName, setNewZoneName] = useState("");
   const [newZoneJumpStart, setNewZoneJumpStart] = useState(false);
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
+  const [ticketScreenshot, setTicketScreenshot] = useState<string | null>(null);
+  const [ticketPageUrl, setTicketPageUrl] = useState("");
 
   useEffect(() => {
     refreshSoa();
@@ -500,6 +505,30 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
     });
   };
 
+  async function openSupportTicketModal() {
+    setTicketPageUrl(window.location.href);
+
+    // Capture screenshot of current page BEFORE opening modal
+    try {
+      const canvas = await html2canvas(document.body, {
+        useCORS: true,
+        scale: 1,
+        scrollX: window.pageXOffset,
+        scrollY: window.pageYOffset,
+        logging: false,
+      });
+
+      const dataUrl = canvas.toDataURL("image/png");
+      setTicketScreenshot(dataUrl);
+    } catch (error) {
+      console.error("Failed to capture screenshot:", error);
+      setTicketScreenshot(null);
+    }
+
+    // Open modal after screenshot is captured
+    setTicketModalOpen(true);
+  }
+
   return (
     <div className="min-h-screen bg-muted/30">
       <header className="flex items-center justify-between border-b bg-white px-6 py-4">
@@ -511,7 +540,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
           <Button variant="outline" onClick={() => navigate("/api-docs")}>
             API Docs
           </Button>
-          <Button variant="outline" onClick={() => navigate("/tickets")}>
+          <Button variant="outline" onClick={openSupportTicketModal}>
             Support
           </Button>
           {user?.role === "superadmin" && (
@@ -1387,6 +1416,13 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
           </TabsContent>
         </Tabs>
       </main>
+
+      <TicketModal
+        isOpen={ticketModalOpen}
+        onClose={() => setTicketModalOpen(false)}
+        screenshotData={ticketScreenshot}
+        pageUrl={ticketPageUrl}
+      />
     </div>
   );
 }

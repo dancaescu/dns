@@ -5,7 +5,6 @@ import { Dashboard } from "./pages/Dashboard";
 import { CloudflareZonePage } from "./pages/CloudflareZonePage";
 import { UserManagement } from "./pages/UserManagement";
 import { Settings } from "./pages/Settings";
-import { Tickets } from "./pages/Tickets";
 import ApiDocs from "./pages/ApiDocs";
 import { getToken, setToken, logout } from "./lib/api";
 
@@ -55,7 +54,6 @@ export default function App() {
       <Route path="/" element={<Dashboard onLogout={handleLogout} user={user} />} />
       <Route path="/cloudflare/zones/:zoneId" element={<CloudflareZonePage onLogout={handleLogout} />} />
       <Route path="/api-docs" element={<ApiDocs />} />
-      <Route path="/tickets" element={<Tickets onLogout={handleLogout} />} />
       {user?.role === "superadmin" && (
         <>
           <Route path="/users" element={<UserManagement onLogout={handleLogout} />} />
