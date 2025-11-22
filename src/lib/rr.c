@@ -142,7 +142,15 @@ mydns_cf_rr_name_matches(const char *filter, const char *candidate) {
   if (!norm_filter[0])
     return !norm_candidate[0];
 
-  return !strcasecmp(norm_filter, norm_candidate);
+  /* First try exact match */
+  if (!strcasecmp(norm_filter, norm_candidate))
+    return 1;
+
+  /* If candidate contains wildcard, use wildcard matching */
+  if (strchr(norm_candidate, '*') || strchr(norm_candidate, '?'))
+    return wildcard_match(norm_candidate, norm_filter);
+
+  return 0;
 }
 
 #if DEBUG_ENABLED
@@ -1098,6 +1106,7 @@ mydns_rr_prepare_query(uint32_t zone, dns_qtype_t type, const char *name, const 
 #else
 			     "zone=%u%s"
 #endif
+			     " AND deleted_at IS NULL"
 			     "%s%s"
 			     "%s%s%s"
 			     "%s%s"
@@ -1307,6 +1316,35 @@ mydns_rr_append_cloudflare(SQL *sqlConn, MYDNS_RR **rptr, uint32_t zone,
     datalen = strlen(data);
     if (datalen > DNS_MAXDATALEN || datalen > 0xFFFF)
       continue;
+
+    /* Cloudflare records need trailing dots for domain name types */
+    /* This prevents recursive appending of the origin */
+    char data_with_dot[DNS_MAXDATALEN + 2];
+    int needs_dot = 0;
+
+    /* Check if this record type contains a domain name that needs a trailing dot */
+    switch (row_type) {
+      case DNS_QTYPE_CNAME:
+      case DNS_QTYPE_MX:
+      case DNS_QTYPE_NS:
+      case DNS_QTYPE_PTR:
+      case DNS_QTYPE_SRV:
+      case DNS_QTYPE_NAPTR:
+        needs_dot = 1;
+        break;
+      default:
+        needs_dot = 0;
+        break;
+    }
+
+    /* Add trailing dot if needed and not already present */
+    if (needs_dot && datalen > 0 && data[datalen-1] != '.') {
+      if (datalen + 1 < sizeof(data_with_dot)) {
+        snprintf(data_with_dot, sizeof(data_with_dot), "%s.", data);
+        data = data_with_dot;
+        datalen++;
+      }
+    }
 
     newrr = mydns_rr_build(atou(row[0]),
 			   atou(row[1]),

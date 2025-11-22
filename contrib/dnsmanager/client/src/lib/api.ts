@@ -2,6 +2,7 @@ const TOKEN_KEY = "dnsmanager_token";
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 
 let authToken: string | null = localStorage.getItem(TOKEN_KEY);
+let tokenChangeCallback: ((token: string | null) => void) | null = null;
 
 export interface LoginResponse {
   token: string;
@@ -19,11 +20,20 @@ export function setToken(token: string | null) {
   } else {
     localStorage.removeItem(TOKEN_KEY);
   }
+  // Notify listeners of token change
+  if (tokenChangeCallback) {
+    tokenChangeCallback(token);
+  }
+}
+
+export function onTokenChange(callback: (token: string | null) => void) {
+  tokenChangeCallback = callback;
 }
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
+  console.log("[apiRequest] Making request to:", path, "with token:", authToken ? authToken.substring(0, 20) + "..." : "NO TOKEN");
   if (authToken) {
     headers.set("Authorization", `Bearer ${authToken}`);
   }
@@ -32,6 +42,13 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
     headers,
   });
   if (!response.ok) {
+    // Handle 401 Unauthorized - clear token
+    if (response.status === 401) {
+      console.error("Session expired or invalid - clearing authentication");
+      setToken(null);
+      // Don't reload immediately - let React handle the state change
+      // The App component will show the login page when token is null
+    }
     const message = await response.text();
     throw new Error(message || `Request failed with ${response.status}`);
   }

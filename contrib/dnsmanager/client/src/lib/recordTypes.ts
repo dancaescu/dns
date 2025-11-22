@@ -139,16 +139,6 @@ export const RECORD_TYPES: Record<string, RecordTypeConfig> = {
     contentLabel: "URI",
     supportsPriority: true,
   },
-  RP: {
-    value: "RP",
-    label: "RP",
-    contentLabel: "Mailbox",
-  },
-  HINFO: {
-    value: "HINFO",
-    label: "HINFO",
-    contentLabel: "Hardware/OS",
-  },
 };
 
 export const RECORD_TYPE_LIST = Object.values(RECORD_TYPES).sort((a, b) =>

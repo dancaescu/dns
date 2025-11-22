@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { Button } from "../components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
@@ -10,6 +11,7 @@ import { apiRequest } from "../lib/api";
 import { Star } from "lucide-react";
 import { cn } from "../lib/utils";
 import { TicketModal } from "../components/TicketModal";
+import { toast, ToastContainer } from "../components/ui/toast";
 import html2canvas from "html2canvas";
 
 interface SoaRecord {
@@ -56,6 +58,179 @@ interface CloudflareAccount {
 }
 
 
+// Helper function to ensure a string ends with a dot
+function ensureTrailingDot(value: string): string {
+  if (!value) return value;
+  return value.endsWith('.') ? value : `${value}.`;
+}
+
+// Helper function to generate a valid SOA serial number based on current date
+function generateSerialNumber(): number {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return Number(`${year}${month}${day}01`); // Format: YYYYMMDD01
+}
+
+// Validate DNS hostname/domain (for Origin and NS fields)
+function validateDnsName(value: string, fieldName: string): { valid: boolean; error?: string } {
+  if (!value) {
+    return { valid: false, error: `${fieldName} is required` };
+  }
+
+  // Remove trailing dot for validation
+  const name = value.endsWith('.') ? value.slice(0, -1) : value;
+
+  // Check for invalid characters
+  if (!/^[a-zA-Z0-9.-]+$/.test(name)) {
+    return { valid: false, error: `${fieldName} contains invalid characters. Use only letters, numbers, dots, and hyphens.` };
+  }
+
+  // Check for @ symbol (common mistake)
+  if (value.includes('@')) {
+    return { valid: false, error: `${fieldName} should not contain '@'. Use DNS format (e.g., admin.example.com.)` };
+  }
+
+  // Check each label
+  const labels = name.split('.');
+  for (const label of labels) {
+    if (!label) {
+      return { valid: false, error: `${fieldName} contains empty labels (consecutive dots)` };
+    }
+    if (label.length > 63) {
+      return { valid: false, error: `${fieldName} has a label longer than 63 characters` };
+    }
+    if (label.startsWith('-') || label.endsWith('-')) {
+      return { valid: false, error: `${fieldName} labels cannot start or end with hyphen` };
+    }
+  }
+
+  return { valid: true };
+}
+
+// Validate Mbox field (should be in DNS format, not email format)
+function validateMbox(value: string): { valid: boolean; error?: string } {
+  if (!value) {
+    return { valid: false, error: 'Mbox is required' };
+  }
+
+  // Check for @ symbol (common mistake - email format)
+  if (value.includes('@')) {
+    return {
+      valid: false,
+      error: 'Mbox should be in DNS format (e.g., admin.example.com.) not email format (admin@example.com). Replace @ with a dot.'
+    };
+  }
+
+  // Use the same validation as DNS names
+  return validateDnsName(value, 'Mbox');
+}
+
+// Validate IPv4 address for A records
+function validateIPv4(value: string): { valid: boolean; error?: string } {
+  if (!value) {
+    return { valid: false, error: 'IPv4 address is required' };
+  }
+
+  // IPv4 regex pattern
+  const ipv4Pattern = /^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+
+  if (!ipv4Pattern.test(value)) {
+    return { valid: false, error: 'Invalid IPv4 address. Format: xxx.xxx.xxx.xxx (e.g., 192.168.1.1)' };
+  }
+
+  return { valid: true };
+}
+
+// Validate IPv6 address for AAAA records
+function validateIPv6(value: string): { valid: boolean; error?: string } {
+  if (!value) {
+    return { valid: false, error: 'IPv6 address is required' };
+  }
+
+  // IPv6 regex pattern (supports full and compressed formats)
+  const ipv6Pattern = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/;
+
+  if (!ipv6Pattern.test(value)) {
+    return { valid: false, error: 'Invalid IPv6 address. Format: xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx (e.g., 2001:db8::1)' };
+  }
+
+  return { valid: true };
+}
+
+// Validate domain name for CNAME, MX, NS records
+function validateRrDomainName(value: string): { valid: boolean; error?: string } {
+  if (!value) {
+    return { valid: false, error: 'Domain name is required' };
+  }
+
+  // Remove trailing dot for validation
+  const name = value.endsWith('.') ? value.slice(0, -1) : value;
+
+  // Check for invalid characters
+  if (!/^[a-zA-Z0-9.-]+$/.test(name)) {
+    return { valid: false, error: 'Invalid domain name. Use only letters, numbers, dots, and hyphens.' };
+  }
+
+  // Check each label
+  const labels = name.split('.');
+  for (const label of labels) {
+    if (!label) {
+      return { valid: false, error: 'Domain name contains empty labels (consecutive dots)' };
+    }
+    if (label.length > 63) {
+      return { valid: false, error: 'Domain name has a label longer than 63 characters' };
+    }
+    if (label.startsWith('-') || label.endsWith('-')) {
+      return { valid: false, error: 'Domain name labels cannot start or end with hyphen' };
+    }
+  }
+
+  return { valid: true };
+}
+
+// Validate RR content based on record type
+function validateRrContent(type: string, value: string): { valid: boolean; error?: string } {
+  // Block record types not commonly supported
+  const unsupportedSimpleTypes = ['HINFO', 'RP'];
+  if (unsupportedSimpleTypes.includes(type)) {
+    return {
+      valid: false,
+      error: `${type} records are not supported in this interface. Use standard record types instead.`
+    };
+  }
+
+  // Block complex structured record types that need special form fields
+  const unsupportedTypes = ['CERT', 'DNSKEY', 'DS', 'SSHFP', 'TLSA', 'SMIMEA'];
+  if (unsupportedTypes.includes(type)) {
+    return {
+      valid: false,
+      error: `${type} records require structured data fields which are not supported in this interface. Use simple record types instead.`
+    };
+  }
+
+  switch (type) {
+    case 'A':
+      return validateIPv4(value);
+    case 'AAAA':
+      return validateIPv6(value);
+    case 'CNAME':
+    case 'MX':
+    case 'NS':
+      return validateRrDomainName(value);
+    case 'TXT':
+      // TXT records have no validation constraints
+      return { valid: true };
+    default:
+      // For other record types, just ensure value is not empty
+      if (!value) {
+        return { valid: false, error: 'Content is required' };
+      }
+      return { valid: true };
+  }
+}
+
 export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any }) {
   const navigate = useNavigate();
   const [soaRecords, setSoaRecords] = useState<SoaRecord[]>([]);
@@ -94,6 +269,15 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
   const [ticketScreenshot, setTicketScreenshot] = useState<string | null>(null);
   const [ticketPageUrl, setTicketPageUrl] = useState("");
+
+  // Loading states for add buttons
+  const [isAddingSoa, setIsAddingSoa] = useState(false);
+  const [isAddingRr, setIsAddingRr] = useState(false);
+  const [isAddingCfZone, setIsAddingCfZone] = useState(false);
+  const [isAddingCfRecord, setIsAddingCfRecord] = useState(false);
+
+  // Track selected RR type in add form for dynamic content field rendering
+  const [rrAddType, setRrAddType] = useState("A");
 
   useEffect(() => {
     refreshSoa();
@@ -293,12 +477,27 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
 
   async function handleSoaUpdate() {
     if (!editingSoaId) return;
+
+    // Validate NS field
+    const nsValidation = validateDnsName(editSoaData.ns || "", "NS");
+    if (!nsValidation.valid) {
+      toast.error(nsValidation.error || "Invalid NS field");
+      return;
+    }
+
+    // Validate Mbox field
+    const mboxValidation = validateMbox(editSoaData.mbox || "");
+    if (!mboxValidation.valid) {
+      toast.error(mboxValidation.error || "Invalid Mbox field");
+      return;
+    }
+
     try {
       await apiRequest(`/soa/${editingSoaId}`, {
         method: "PUT",
         body: JSON.stringify({
-          ns: editSoaData.ns,
-          mbox: editSoaData.mbox,
+          ns: ensureTrailingDot(editSoaData.ns || ""),
+          mbox: ensureTrailingDot(editSoaData.mbox || ""),
           serial: Number(editSoaData.serial),
           refresh: Number(editSoaData.refresh),
           retry: Number(editSoaData.retry),
@@ -310,25 +509,52 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
       });
       setEditingSoaId(null);
       setEditSoaData({});
+      toast.success("SOA record updated successfully");
       await refreshSoa();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to update SOA:", error);
-      alert("Failed to update SOA record");
+      toast.error(error.message || "Failed to update SOA record");
     }
   }
 
   async function handleSoaCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    if (isAddingSoa) return; // Prevent duplicate submissions
+
+    const form = event.currentTarget; // Store form reference before async operation
+    const formData = new FormData(form);
     const payload = Object.fromEntries(formData.entries());
+
+    // Validate Origin field
+    const originValidation = validateDnsName(payload.origin as string, "Origin");
+    if (!originValidation.valid) {
+      toast.error(originValidation.error || "Invalid Origin field");
+      return;
+    }
+
+    // Validate NS field
+    const nsValidation = validateDnsName(payload.ns as string, "NS");
+    if (!nsValidation.valid) {
+      toast.error(nsValidation.error || "Invalid NS field");
+      return;
+    }
+
+    // Validate Mbox field
+    const mboxValidation = validateMbox(payload.mbox as string);
+    if (!mboxValidation.valid) {
+      toast.error(mboxValidation.error || "Invalid Mbox field");
+      return;
+    }
+
+    setIsAddingSoa(true);
     try {
       await apiRequest("/soa", {
         method: "POST",
         body: JSON.stringify({
-          origin: payload.origin as string,
-          ns: payload.ns as string,
-          mbox: payload.mbox as string,
-          serial: Number(payload.serial || 1),
+          origin: ensureTrailingDot(payload.origin as string),
+          ns: ensureTrailingDot(payload.ns as string),
+          mbox: ensureTrailingDot(payload.mbox as string),
+          serial: Number(payload.serial || generateSerialNumber()),
           refresh: Number(payload.refresh || 28800),
           retry: Number(payload.retry || 7200),
           expire: Number(payload.expire || 604800),
@@ -338,33 +564,73 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
         }),
       });
       setShowSoaAddForm(false);
-      event.currentTarget.reset();
+      form.reset(); // Use stored reference instead of event.currentTarget
+      toast.success("SOA record created successfully");
       await refreshSoa();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to create SOA:", error);
-      alert("Failed to create SOA record");
+      toast.error(error.message || "Failed to create SOA record");
+    } finally {
+      setIsAddingSoa(false);
+    }
+  }
+
+  async function handleSoaDelete(soaId: number, origin: string) {
+    if (!confirm(`Are you sure you want to delete the SOA record for "${origin}"?\n\nThis will also delete all associated RR records.`)) {
+      return;
+    }
+
+    try {
+      await apiRequest(`/soa/${soaId}`, {
+        method: "DELETE",
+      });
+      toast.success("SOA record and associated RR records deleted successfully");
+      await refreshSoa();
+    } catch (error: any) {
+      console.error("Failed to delete SOA:", error);
+      toast.error(error.message || "Failed to delete SOA record");
     }
   }
 
   async function handleRrCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!rrZoneId) return;
-    const formData = new FormData(event.currentTarget);
+    if (!rrZoneId || isAddingRr) return; // Prevent duplicate submissions
+
+    const form = event.currentTarget; // Store form reference before async operation
+    const formData = new FormData(form);
     const payload = Object.fromEntries(formData.entries());
-    await apiRequest("/rr", {
-      method: "POST",
-      body: JSON.stringify({
-        zone: rrZoneId,
-        name: payload.name,
-        type: payload.type,
-        data: payload.data,
-        aux: Number(payload.aux || 0),
-        ttl: Number(payload.ttl || 86400),
-      }),
-    });
-    event.currentTarget.reset();
-    setShowRrAddForm(false);
-    refreshRr(rrZoneId);
+
+    // Validate content based on record type
+    const contentValidation = validateRrContent(payload.type as string, payload.data as string);
+    if (!contentValidation.valid) {
+      toast.error(contentValidation.error || "Invalid content for this record type");
+      return;
+    }
+
+    setIsAddingRr(true);
+    try {
+      await apiRequest("/rr", {
+        method: "POST",
+        body: JSON.stringify({
+          zone: rrZoneId,
+          name: payload.name,
+          type: payload.type,
+          data: payload.data,
+          aux: Number(payload.aux || 0),
+          ttl: Number(payload.ttl || 86400),
+        }),
+      });
+      form.reset(); // Use stored reference instead of event.currentTarget
+      setShowRrAddForm(false);
+      setRrAddType("A"); // Reset to default type
+      toast.success("RR record created successfully");
+      refreshRr(rrZoneId);
+    } catch (error: any) {
+      console.error("Failed to create RR:", error);
+      toast.error(error.message || "Failed to create RR record");
+    } finally {
+      setIsAddingRr(false);
+    }
   }
 
   async function handleRrUpdate() {
@@ -436,11 +702,14 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
 
 
   async function handleCreateZone() {
+    if (!newZoneAccountId || !newZoneName || isAddingCfZone) return; // Prevent duplicate submissions
+
     if (!newZoneAccountId || !newZoneName) {
-      alert("Please select an account and enter a zone name");
+      toast.error("Please select an account and enter a zone name");
       return;
     }
 
+    setIsAddingCfZone(true);
     try {
       const response = await apiRequest<{ success: boolean; name: string; name_servers?: string[] }>("/cloudflare/zones", {
         method: "POST",
@@ -453,16 +722,18 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
       });
 
       if (response.success) {
-        alert(`Zone "${response.name}" created successfully!\n\nName servers:\n${response.name_servers?.join("\n") || "N/A"}`);
+        toast.success(`Zone "${response.name}" created successfully!\n\nName servers:\n${response.name_servers?.join("\n") || "N/A"}`);
         setShowAddZoneModal(false);
         setNewZoneAccountId(null);
         setNewZoneName("");
         setNewZoneJumpStart(false);
         loadZones();
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to create zone:", error);
-      alert("Failed to create zone. Please check the console for details.");
+      toast.error(error.message || "Failed to create zone");
+    } finally {
+      setIsAddingCfZone(false);
     }
   }
 
@@ -540,6 +811,9 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
           <Button variant="outline" onClick={() => navigate("/api-docs")}>
             API Docs
           </Button>
+          <Button variant="outline" onClick={() => navigate("/my-settings")}>
+            My Settings
+          </Button>
           <Button variant="outline" onClick={openSupportTicketModal}>
             Support
           </Button>
@@ -548,10 +822,18 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
               <Button variant="outline" onClick={() => navigate("/users")}>
                 User Management
               </Button>
+              <Button variant="outline" onClick={() => navigate("/zone-assignments")}>
+                Zone Assignments
+              </Button>
               <Button variant="outline" onClick={() => navigate("/settings")}>
-                Settings
+                System Settings
               </Button>
             </>
+          )}
+          {(user?.role === "superadmin" || user?.role === "account_admin") && (
+            <Button variant="outline" onClick={() => navigate("/permissions")}>
+              Permissions
+            </Button>
           )}
           <Button variant="outline" onClick={onLogout}>
             Logout
@@ -601,7 +883,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         <Input
                           id="soa-origin"
                           name="origin"
-                          placeholder="example.com"
+                          placeholder="example.com."
                           required
                         />
                       </div>
@@ -610,7 +892,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         <Input
                           id="soa-ns"
                           name="ns"
-                          placeholder="ns1.example.com"
+                          placeholder="ns1.example.com."
                           required
                         />
                       </div>
@@ -619,7 +901,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         <Input
                           id="soa-mbox"
                           name="mbox"
-                          placeholder="admin.example.com"
+                          placeholder="admin.example.com."
                           required
                         />
                       </div>
@@ -631,7 +913,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                           id="soa-serial"
                           name="serial"
                           type="number"
-                          defaultValue={1}
+                          defaultValue={generateSerialNumber()}
                         />
                       </div>
                       <div>
@@ -693,8 +975,8 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                           <option value="N">No</option>
                         </select>
                       </div>
-                      <Button type="submit" className="ml-auto">
-                        Create SOA Record
+                      <Button type="submit" className="ml-auto" disabled={isAddingSoa}>
+                        {isAddingSoa ? "Creating..." : "Create SOA Record"}
                       </Button>
                     </div>
                   </form>
@@ -726,135 +1008,213 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         </TableRow>
                       ) : (
                         paginatedSoaRecords.map((soa) => (
-                          <TableRow key={soa.id} className="hover:bg-muted/50">
-                            {editingSoaId === soa.id ? (
-                              <>
-                                <TableCell className="font-medium">{soa.origin}</TableCell>
-                                <TableCell>
-                                  <Input
-                                    value={editSoaData.ns || ""}
-                                    onChange={(e) => setEditSoaData({ ...editSoaData, ns: e.target.value })}
-                                    className="text-sm"
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    value={editSoaData.mbox || ""}
-                                    onChange={(e) => setEditSoaData({ ...editSoaData, mbox: e.target.value })}
-                                    className="text-sm"
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    type="number"
-                                    value={editSoaData.serial ?? 0}
-                                    onChange={(e) => setEditSoaData({ ...editSoaData, serial: Number(e.target.value) })}
-                                    className="w-24 text-sm"
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    type="number"
-                                    value={editSoaData.refresh ?? 0}
-                                    onChange={(e) => setEditSoaData({ ...editSoaData, refresh: Number(e.target.value) })}
-                                    className="w-20 text-sm"
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    type="number"
-                                    value={editSoaData.retry ?? 0}
-                                    onChange={(e) => setEditSoaData({ ...editSoaData, retry: Number(e.target.value) })}
-                                    className="w-20 text-sm"
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    type="number"
-                                    value={editSoaData.expire ?? 0}
-                                    onChange={(e) => setEditSoaData({ ...editSoaData, expire: Number(e.target.value) })}
-                                    className="w-20 text-sm"
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    type="number"
-                                    value={editSoaData.minimum ?? 0}
-                                    onChange={(e) => setEditSoaData({ ...editSoaData, minimum: Number(e.target.value) })}
-                                    className="w-20 text-sm"
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    type="number"
-                                    value={editSoaData.ttl ?? 0}
-                                    onChange={(e) => setEditSoaData({ ...editSoaData, ttl: Number(e.target.value) })}
-                                    className="w-20 text-sm"
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <select
-                                    value={editSoaData.active || "Y"}
-                                    onChange={(e) => setEditSoaData({ ...editSoaData, active: e.target.value as "Y" | "N" })}
-                                    className="w-full rounded border px-2 py-1 text-sm"
-                                  >
-                                    <option value="Y">Yes</option>
-                                    <option value="N">No</option>
-                                  </select>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end gap-2">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={handleSoaUpdate}
-                                      className="text-green-600 hover:text-green-700"
-                                    >
-                                      Save
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={cancelEditSoa}
-                                      className="text-gray-600 hover:text-gray-700"
-                                    >
-                                      Cancel
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </>
-                            ) : (
-                              <>
-                                <TableCell className="font-medium">{soa.origin}</TableCell>
-                                <TableCell className="text-sm">{soa.ns}</TableCell>
-                                <TableCell className="text-sm">{soa.mbox}</TableCell>
-                                <TableCell className="text-sm text-muted-foreground">{soa.serial}</TableCell>
-                                <TableCell className="text-sm text-muted-foreground">{soa.refresh}</TableCell>
-                                <TableCell className="text-sm text-muted-foreground">{soa.retry}</TableCell>
-                                <TableCell className="text-sm text-muted-foreground">{soa.expire}</TableCell>
-                                <TableCell className="text-sm text-muted-foreground">{soa.minimum}</TableCell>
-                                <TableCell className="text-sm text-muted-foreground">{soa.ttl}</TableCell>
-                                <TableCell>
-                                  <span className={cn(
-                                    "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
-                                    soa.active === "Y" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
-                                  )}>
-                                    {soa.active === "Y" ? "Active" : "Inactive"}
-                                  </span>
-                                </TableCell>
-                                <TableCell className="text-right">
+                          <Fragment key={soa.id}>
+                            <TableRow
+                              className={cn(
+                                "hover:bg-muted/50",
+                                editingSoaId === soa.id && "bg-blue-50"
+                              )}
+                            >
+                              <TableCell className="font-medium">{soa.origin}</TableCell>
+                              <TableCell className="text-sm">{soa.ns}</TableCell>
+                              <TableCell className="text-sm">{soa.mbox}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{soa.serial}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{soa.refresh}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{soa.retry}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{soa.expire}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{soa.minimum}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{soa.ttl}</TableCell>
+                              <TableCell>
+                                <span className={cn(
+                                  "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
+                                  soa.active === "Y" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
+                                )}>
+                                  {soa.active === "Y" ? "Active" : "Inactive"}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-2">
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => startEditSoa(soa)}
-                                    className="text-blue-600 hover:text-blue-700"
+                                    onClick={() => editingSoaId === soa.id ? cancelEditSoa() : startEditSoa(soa)}
+                                    className={editingSoaId === soa.id ? "text-gray-600 hover:text-gray-700" : "text-blue-600 hover:text-blue-700"}
                                   >
-                                    Edit
+                                    {editingSoaId === soa.id ? "Cancel" : "Edit"}
                                   </Button>
+                                  {editingSoaId !== soa.id && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleSoaDelete(soa.id, soa.origin)}
+                                      className="text-red-600 hover:text-red-700"
+                                    >
+                                      Delete
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+
+                            {/* Edit Panel - appears below the row being edited */}
+                            {editingSoaId === soa.id && (
+                              <TableRow>
+                                <TableCell colSpan={11} className="bg-blue-50/50 p-0">
+                                  <div className="space-y-4 p-6">
+                                    <div className="flex items-center justify-between border-b pb-2">
+                                      <h3 className="text-sm font-semibold text-gray-900">
+                                        Editing SOA Record: {soa.origin}
+                                      </h3>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={cancelEditSoa}
+                                        className="text-gray-600"
+                                      >
+                                        ✕
+                                      </Button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                      <div>
+                                        <Label htmlFor="edit-soa-origin" className="text-sm font-medium">
+                                          Origin (read-only)
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-origin"
+                                          value={soa.origin}
+                                          disabled
+                                          className="bg-gray-100"
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label htmlFor="edit-soa-ns" className="text-sm font-medium">
+                                          NS *
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-ns"
+                                          value={editSoaData.ns || ""}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, ns: e.target.value })}
+                                          placeholder="ns1.example.com."
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label htmlFor="edit-soa-mbox" className="text-sm font-medium">
+                                          Mbox *
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-mbox"
+                                          value={editSoaData.mbox || ""}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, mbox: e.target.value })}
+                                          placeholder="admin.example.com."
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+                                      <div>
+                                        <Label htmlFor="edit-soa-serial" className="text-sm font-medium">
+                                          Serial
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-serial"
+                                          type="number"
+                                          value={editSoaData.serial ?? 0}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, serial: Number(e.target.value) })}
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label htmlFor="edit-soa-refresh" className="text-sm font-medium">
+                                          Refresh
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-refresh"
+                                          type="number"
+                                          value={editSoaData.refresh ?? 0}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, refresh: Number(e.target.value) })}
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label htmlFor="edit-soa-retry" className="text-sm font-medium">
+                                          Retry
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-retry"
+                                          type="number"
+                                          value={editSoaData.retry ?? 0}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, retry: Number(e.target.value) })}
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label htmlFor="edit-soa-expire" className="text-sm font-medium">
+                                          Expire
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-expire"
+                                          type="number"
+                                          value={editSoaData.expire ?? 0}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, expire: Number(e.target.value) })}
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label htmlFor="edit-soa-minimum" className="text-sm font-medium">
+                                          Minimum
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-minimum"
+                                          type="number"
+                                          value={editSoaData.minimum ?? 0}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, minimum: Number(e.target.value) })}
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label htmlFor="edit-soa-ttl" className="text-sm font-medium">
+                                          TTL
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-ttl"
+                                          type="number"
+                                          value={editSoaData.ttl ?? 0}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, ttl: Number(e.target.value) })}
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <Label htmlFor="edit-soa-active" className="text-sm font-medium">
+                                          Active
+                                        </Label>
+                                        <select
+                                          id="edit-soa-active"
+                                          value={editSoaData.active || "Y"}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, active: e.target.value as "Y" | "N" })}
+                                          className="ml-2 rounded-md border px-3 py-2 text-sm"
+                                        >
+                                          <option value="Y">Yes</option>
+                                          <option value="N">No</option>
+                                        </select>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <Button
+                                          variant="outline"
+                                          onClick={cancelEditSoa}
+                                        >
+                                          Cancel
+                                        </Button>
+                                        <Button
+                                          onClick={handleSoaUpdate}
+                                          className="bg-blue-600 hover:bg-blue-700"
+                                        >
+                                          Save Changes
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </div>
                                 </TableCell>
-                              </>
+                              </TableRow>
                             )}
-                          </TableRow>
+                          </Fragment>
                         ))
                       )}
                     </TableBody>
@@ -943,7 +1303,12 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                   <Button
                     variant="default"
                     size="sm"
-                    onClick={() => setShowRrAddForm(!showRrAddForm)}
+                    onClick={() => {
+                      setShowRrAddForm(!showRrAddForm);
+                      if (!showRrAddForm) {
+                        setRrAddType("A"); // Reset to default type when opening form
+                      }
+                    }}
                     disabled={!rrZoneId}
                   >
                     {showRrAddForm ? "Close add panel" : "Add record"}
@@ -958,10 +1323,12 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         <select
                           id="rr-type"
                           name="type"
+                          value={rrAddType}
+                          onChange={(e) => setRrAddType(e.target.value)}
                           className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                           required
                         >
-                          {["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SRV", "PTR", "RP", "NAPTR", "HINFO"].map((type) => (
+                          {["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SRV", "PTR", "NAPTR"].map((type) => (
                             <option key={type}>{type}</option>
                           ))}
                         </select>
@@ -971,8 +1338,28 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         <Input id="rr-name" name="name" className="mt-1" required />
                       </div>
                       <div className="md:col-span-2">
-                        <Label htmlFor="rr-data" className="text-sm font-medium">Content</Label>
-                        <Input id="rr-data" name="data" className="mt-1" required />
+                        <Label htmlFor="rr-data" className="text-sm font-medium">
+                          Content
+                          {rrAddType === 'A' && ' (IPv4 address)'}
+                          {rrAddType === 'AAAA' && ' (IPv6 address)'}
+                          {(rrAddType === 'CNAME' || rrAddType === 'MX' || rrAddType === 'NS') && ' (Domain name)'}
+                        </Label>
+                        {rrAddType === 'TXT' ? (
+                          <Textarea id="rr-data" name="data" className="mt-1" rows={3} required />
+                        ) : (
+                          <Input
+                            id="rr-data"
+                            name="data"
+                            className="mt-1"
+                            required
+                            placeholder={
+                              rrAddType === 'A' ? 'e.g., 192.168.1.1' :
+                              rrAddType === 'AAAA' ? 'e.g., 2001:db8::1' :
+                              (rrAddType === 'CNAME' || rrAddType === 'MX' || rrAddType === 'NS') ? 'e.g., example.com.' :
+                              ''
+                            }
+                          />
+                        )}
                       </div>
                     </div>
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -985,8 +1372,8 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         <Input id="rr-ttl" name="ttl" type="number" defaultValue={86400} className="mt-1" />
                       </div>
                       <div className="flex items-end md:col-span-2">
-                        <Button type="submit" className="w-full">
-                          Add record
+                        <Button type="submit" className="w-full" disabled={isAddingRr}>
+                          {isAddingRr ? "Adding..." : "Add record"}
                         </Button>
                       </div>
                     </div>
@@ -1023,7 +1410,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                                     onChange={(e) => setEditFormData({ ...editFormData, type: e.target.value })}
                                     className="w-full rounded border px-2 py-1 text-sm"
                                   >
-                                    {["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SRV", "PTR", "RP", "NAPTR", "HINFO"].map((type) => (
+                                    {["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SRV", "PTR", "NAPTR"].map((type) => (
                                       <option key={type}>{type}</option>
                                     ))}
                                   </select>
@@ -1306,15 +1693,14 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         >
                           Cancel
                         </Button>
-                        <Button onClick={handleCreateZone}>Create Zone</Button>
+                        <Button onClick={handleCreateZone} disabled={isAddingCfZone}>
+                          {isAddingCfZone ? "Creating..." : "Create Zone"}
+                        </Button>
                       </div>
                     </div>
                   </div>
                 </div>
               )}
-              <div className="rounded border bg-white px-4 py-3 text-sm text-muted-foreground">
-                Click any View button to open the zone editor page in this window.
-              </div>
 
               {favoriteZones.length > 0 && (
                 <Card>
@@ -1423,6 +1809,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
         screenshotData={ticketScreenshot}
         pageUrl={ticketPageUrl}
       />
+      <ToastContainer />
     </div>
   );
 }

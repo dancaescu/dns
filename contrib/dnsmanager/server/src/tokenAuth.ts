@@ -45,7 +45,7 @@ export async function authenticateToken(token: string): Promise<{
 
   const prefix = token.substring(0, 15);
 
-  // Find tokens with matching prefix
+  // Find tokens with matching prefix and check user's API access permission
   const [tokens] = await query<{
     id: number;
     user_id: number;
@@ -55,9 +55,10 @@ export async function authenticateToken(token: string): Promise<{
     expires_at: Date | null;
     username: string;
     role: string;
+    can_use_api: number;
   }>(
     `SELECT t.id, t.user_id, t.token_hash, t.scopes, t.active, t.expires_at,
-            u.username, u.role
+            u.username, u.role, u.can_use_api
      FROM dnsmanager_tokens t
      JOIN dnsmanager_users u ON u.id = t.user_id
      WHERE t.token_prefix = ? AND t.active = 1`,
@@ -66,6 +67,11 @@ export async function authenticateToken(token: string): Promise<{
 
   // Check each token (should usually be just one)
   for (const tokenRow of tokens) {
+    // Check if user has API access permission
+    if (!tokenRow.can_use_api) {
+      continue;
+    }
+
     // Check expiry
     if (tokenRow.expires_at && new Date() > new Date(tokenRow.expires_at)) {
       continue;

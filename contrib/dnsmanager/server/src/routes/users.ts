@@ -90,6 +90,25 @@ router.get("/", requireSuperadmin, async (req: any, res) => {
 });
 
 /**
+ * GET /api/users/accounts
+ * List all accounts (superadmin and account admins)
+ */
+router.get("/accounts", requireAuth, async (req: any, res) => {
+  try {
+    const [rows] = await query(
+      `SELECT id, name, cf_account_id
+       FROM cloudflare_accounts
+       WHERE deleted_at IS NULL
+       ORDER BY name`
+    );
+    res.json({ accounts: rows });
+  } catch (error) {
+    console.error("List accounts error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+/**
  * GET /api/users/:id
  * Get user details
  */

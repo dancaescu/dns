@@ -66,6 +66,17 @@ router.post("/", async (req: any, res) => {
   const userAgent = req.headers["user-agent"] || "unknown";
 
   try {
+    // Check if user has API access permission
+    const [userAccount] = await query(`
+      SELECT can_use_api FROM dnsmanager_users WHERE id = ?
+    `, [req.session.userId]);
+
+    if (!Array.isArray(userAccount) || userAccount.length === 0 || !userAccount[0].can_use_api) {
+      return res.status(403).json({
+        message: "API access disabled. Contact your administrator to enable API access."
+      });
+    }
+
     // Generate token
     const { token, prefix } = generateToken();
     const tokenHash = await hashToken(token);

@@ -8,7 +8,9 @@ import usersRoutes from "./routes/users.js";
 import settingsRoutes from "./routes/settings.js";
 import tokensRoutes from "./routes/tokens.js";
 import ticketsRoutes from "./routes/tickets.js";
+import logsRoutes from "./routes/logs.js";
 import publicApiRoutes from "./routes/publicApi.js";
+import permissionsRoutes from "./routes/permissions.js";
 import { getActiveHost } from "./db.js";
 
 const app = express();
@@ -33,7 +35,9 @@ app.use("/api/users", usersRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/tokens", tokensRoutes);
 app.use("/api/tickets", ticketsRoutes);
+app.use("/api/logs", logsRoutes);
 app.use("/api/v1", publicApiRoutes);
+app.use("/api/permissions", permissionsRoutes);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

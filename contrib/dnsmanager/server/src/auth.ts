@@ -132,6 +132,7 @@ export async function createSession(
  * Get session by token
  */
 export async function getSession(sessionToken: string): Promise<SessionData | null> {
+  console.log("[getSession] Checking token:", sessionToken?.substring(0, 20) + "...");
   const [rows] = await query<{
     user_id: number;
     username: string;
@@ -146,7 +147,11 @@ export async function getSession(sessionToken: string): Promise<SessionData | nu
     [sessionToken]
   );
 
-  if (rows.length === 0) return null;
+  console.log("[getSession] Query returned", rows.length, "rows");
+  if (rows.length === 0) {
+    console.log("[getSession] No session found for token");
+    return null;
+  }
 
   const session = rows[0];
 

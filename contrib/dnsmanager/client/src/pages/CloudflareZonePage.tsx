@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Button } from "../components/ui/button";
 import { Label } from "../components/ui/label";
 import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import {
   apiRequest,
@@ -86,7 +87,332 @@ const defaultRecordForm = {
   port: 0,
   comment: "",
   tags: "",
+  // CERT record structured data
+  certType: 0,
+  certKeyTag: 0,
+  certAlgorithm: 0,
+  certCertificate: "",
+  // CAA record structured data
+  caaFlags: 0,
+  caaTag: "issue",
+  caaValue: "",
+  // DNSKEY record structured data
+  dnskeyFlags: 257,
+  dnskeyProtocol: 3,
+  dnskeyAlgorithm: 8,
+  dnskeyPublicKey: "",
+  // SMIMEA record structured data
+  smimeaUsage: 3,
+  smimeaSelector: 1,
+  smimeaMatchingType: 1,
+  smimeaCertificate: "",
+  // SSHFP record structured data
+  sshfpAlgorithm: 1,
+  sshfpFptype: 2,
+  sshfpFingerprint: "",
 };
+
+// Validate IPv4 address for A records
+function validateIPv4(value: string): { valid: boolean; error?: string } {
+  if (!value) {
+    return { valid: false, error: 'IPv4 address is required' };
+  }
+
+  // IPv4 regex pattern
+  const ipv4Pattern = /^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+
+  if (!ipv4Pattern.test(value)) {
+    return { valid: false, error: 'Invalid IPv4 address. Format: xxx.xxx.xxx.xxx (e.g., 192.168.1.1)' };
+  }
+
+  return { valid: true };
+}
+
+// Validate IPv6 address for AAAA records
+function validateIPv6(value: string): { valid: boolean; error?: string } {
+  if (!value) {
+    return { valid: false, error: 'IPv6 address is required' };
+  }
+
+  // IPv6 regex pattern (supports full and compressed formats)
+  const ipv6Pattern = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/;
+
+  if (!ipv6Pattern.test(value)) {
+    return { valid: false, error: 'Invalid IPv6 address. Format: xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx (e.g., 2001:db8::1)' };
+  }
+
+  return { valid: true };
+}
+
+// Validate domain name for CNAME, MX, NS records
+function validateDomainName(value: string): { valid: boolean; error?: string } {
+  if (!value) {
+    return { valid: false, error: 'Domain name is required' };
+  }
+
+  // Remove trailing dot for validation
+  const name = value.endsWith('.') ? value.slice(0, -1) : value;
+
+  // Check for invalid characters
+  if (!/^[a-zA-Z0-9.-]+$/.test(name)) {
+    return { valid: false, error: 'Invalid domain name. Use only letters, numbers, dots, and hyphens.' };
+  }
+
+  // Check each label
+  const labels = name.split('.');
+  for (const label of labels) {
+    if (!label) {
+      return { valid: false, error: 'Domain name contains empty labels (consecutive dots)' };
+    }
+    if (label.length > 63) {
+      return { valid: false, error: 'Domain name has a label longer than 63 characters' };
+    }
+    if (label.startsWith('-') || label.endsWith('-')) {
+      return { valid: false, error: 'Domain name labels cannot start or end with hyphen' };
+    }
+  }
+
+  return { valid: true };
+}
+
+// Validate base64 encoding
+function validateBase64(value: string): { valid: boolean; error?: string } {
+  if (!value || value.trim() === '') {
+    return { valid: false, error: 'Certificate data is required' };
+  }
+
+  // Remove whitespace and newlines
+  const cleaned = value.replace(/\s/g, '');
+
+  // Base64 regex pattern
+  const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/;
+
+  if (!base64Pattern.test(cleaned)) {
+    return { valid: false, error: 'Certificate must be valid base64 encoded data (A-Z, a-z, 0-9, +, /, =)' };
+  }
+
+  // Check length is multiple of 4 (base64 requirement)
+  if (cleaned.length % 4 !== 0) {
+    return { valid: false, error: 'Invalid base64 encoding (length must be multiple of 4)' };
+  }
+
+  return { valid: true };
+}
+
+// Validate hexadecimal string
+function validateHex(value: string): { valid: boolean; error?: string } {
+  if (!value || value.trim() === '') {
+    return { valid: false, error: 'Hexadecimal data is required' };
+  }
+
+  const cleaned = value.replace(/\s/g, '');
+  const hexPattern = /^[0-9a-fA-F]+$/;
+
+  if (!hexPattern.test(cleaned)) {
+    return { valid: false, error: 'Must be valid hexadecimal (0-9, A-F)' };
+  }
+
+  return { valid: true };
+}
+
+// Validate record content based on record type
+function validateRecordContent(type: string, value: string, certData?: any): { valid: boolean; error?: string } {
+  // Block record types not supported by Cloudflare API
+  const cloudflareUnsupportedTypes = ['HINFO', 'RP'];
+  if (cloudflareUnsupportedTypes.includes(type)) {
+    return {
+      valid: false,
+      error: `${type} records are not supported by Cloudflare's API. This record type cannot be created.`
+    };
+  }
+
+  // Block complex structured record types that need special form fields (except CERT, CAA, DNSKEY, SMIMEA, SSHFP which we support)
+  const unsupportedTypes = ['DS', 'TLSA'];
+  if (unsupportedTypes.includes(type)) {
+    return {
+      valid: false,
+      error: `${type} records require structured data fields which are not yet supported in this interface. Please use Cloudflare dashboard or API directly.`
+    };
+  }
+
+  // CERT record validation
+  if (type === 'CERT') {
+    if (!certData) {
+      return { valid: false, error: 'CERT record data is required' };
+    }
+
+    // Validate Type field (must be a valid option)
+    const validTypes = [0, 1, 2, 3, 253, 254, 255];
+    if (!validTypes.includes(Number(certData.certType))) {
+      return { valid: false, error: 'Invalid certificate type. Select from dropdown.' };
+    }
+
+    // Validate Key Tag (0-65535)
+    const keyTag = Number(certData.certKeyTag);
+    if (!Number.isInteger(keyTag) || keyTag < 0 || keyTag > 65535) {
+      return { valid: false, error: 'Key Tag must be an integer between 0 and 65535' };
+    }
+
+    // Validate Algorithm (must be a valid option)
+    const validAlgorithms = [0, 1, 2, 3, 5, 6, 7, 8, 10, 12, 13, 14, 15, 16, 253, 254, 255];
+    if (!validAlgorithms.includes(Number(certData.certAlgorithm))) {
+      return { valid: false, error: 'Invalid algorithm. Select from dropdown.' };
+    }
+
+    // Validate certificate base64 encoding
+    const base64Validation = validateBase64(certData.certCertificate);
+    if (!base64Validation.valid) {
+      return base64Validation;
+    }
+
+    return { valid: true };
+  }
+
+  // CAA record validation
+  if (type === 'CAA') {
+    if (!certData) {
+      return { valid: false, error: 'CAA record data is required' };
+    }
+
+    // Validate Flags (0 or 128)
+    const flags = Number(certData.caaFlags);
+    if (flags !== 0 && flags !== 128) {
+      return { valid: false, error: 'Flags must be 0 (non-critical) or 128 (critical)' };
+    }
+
+    // Validate Tag
+    const validTags = ['issue', 'issuewild', 'iodef'];
+    if (!validTags.includes(certData.caaTag)) {
+      return { valid: false, error: 'Invalid tag. Select from dropdown.' };
+    }
+
+    // Validate Value
+    if (!certData.caaValue || certData.caaValue.trim() === '') {
+      return { valid: false, error: 'Value field is required for CAA records' };
+    }
+
+    return { valid: true };
+  }
+
+  // DNSKEY record validation
+  if (type === 'DNSKEY') {
+    if (!certData) {
+      return { valid: false, error: 'DNSKEY record data is required' };
+    }
+
+    // Validate Flags
+    const validFlags = [0, 256, 257];
+    if (!validFlags.includes(Number(certData.dnskeyFlags))) {
+      return { valid: false, error: 'Invalid flags. Select from dropdown.' };
+    }
+
+    // Validate Protocol (must always be 3)
+    if (Number(certData.dnskeyProtocol) !== 3) {
+      return { valid: false, error: 'Protocol must be 3 for DNSSEC' };
+    }
+
+    // Validate Algorithm (must be a valid option)
+    const validAlgorithms = [0, 1, 2, 3, 5, 6, 7, 8, 10, 12, 13, 14, 15, 16, 253, 254, 255];
+    if (!validAlgorithms.includes(Number(certData.dnskeyAlgorithm))) {
+      return { valid: false, error: 'Invalid algorithm. Select from dropdown.' };
+    }
+
+    // Validate public key base64 encoding
+    const base64Validation = validateBase64(certData.dnskeyPublicKey);
+    if (!base64Validation.valid) {
+      return base64Validation;
+    }
+
+    return { valid: true };
+  }
+
+  // SMIMEA record validation
+  if (type === 'SMIMEA') {
+    if (!certData) {
+      return { valid: false, error: 'SMIMEA record data is required' };
+    }
+
+    // Validate Usage (0-3)
+    const usage = Number(certData.smimeaUsage);
+    if (![0, 1, 2, 3].includes(usage)) {
+      return { valid: false, error: 'Invalid usage. Select from dropdown.' };
+    }
+
+    // Validate Selector (0-1)
+    const selector = Number(certData.smimeaSelector);
+    if (![0, 1].includes(selector)) {
+      return { valid: false, error: 'Invalid selector. Select from dropdown.' };
+    }
+
+    // Validate Matching Type (0-2)
+    const matchingType = Number(certData.smimeaMatchingType);
+    if (![0, 1, 2].includes(matchingType)) {
+      return { valid: false, error: 'Invalid matching type. Select from dropdown.' };
+    }
+
+    // Validate certificate base64/hex encoding
+    const certValidation = validateBase64(certData.smimeaCertificate);
+    if (!certValidation.valid) {
+      return certValidation;
+    }
+
+    return { valid: true };
+  }
+
+  // SSHFP record validation
+  if (type === 'SSHFP') {
+    if (!certData) {
+      return { valid: false, error: 'SSHFP record data is required' };
+    }
+
+    // Validate Algorithm (1-4)
+    const algorithm = Number(certData.sshfpAlgorithm);
+    if (![1, 2, 3, 4].includes(algorithm)) {
+      return { valid: false, error: 'Invalid algorithm. Select from dropdown.' };
+    }
+
+    // Validate Fingerprint Type (1-2)
+    const fptype = Number(certData.sshfpFptype);
+    if (![1, 2].includes(fptype)) {
+      return { valid: false, error: 'Invalid fingerprint type. Select from dropdown.' };
+    }
+
+    // Validate fingerprint hexadecimal encoding
+    const fpValidation = validateHex(certData.sshfpFingerprint);
+    if (!fpValidation.valid) {
+      return fpValidation;
+    }
+
+    return { valid: true };
+  }
+
+  switch (type) {
+    case 'A':
+      return validateIPv4(value);
+    case 'AAAA':
+      return validateIPv6(value);
+    case 'CNAME':
+    case 'MX':
+    case 'NS':
+      return validateDomainName(value);
+    case 'OPENPGPKEY':
+      // OPENPGPKEY requires valid base64 encoded public key
+      const openpgpValidation = validateBase64(value);
+      if (!openpgpValidation.valid) {
+        return { valid: false, error: 'OPENPGPKEY content must be valid base64 encoded OpenPGP public key data' };
+      }
+      return { valid: true };
+    case 'TXT':
+      // TXT records have no validation constraints
+      return { valid: true };
+    default:
+      // For other record types, just ensure value is not empty
+      if (!value) {
+        return { valid: false, error: 'Content is required' };
+      }
+      return { valid: true };
+  }
+}
 
 export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
   const params = useParams<{ zoneId: string }>();
@@ -316,20 +642,75 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
   async function handleCreateRecord(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setRecordMessage(null);
+
+    // Validate content based on record type
+    const contentValidation = validateRecordContent(recordForm.type, recordForm.content, recordForm);
+    if (!contentValidation.valid) {
+      toast.error(contentValidation.error || "Invalid content for this record type");
+      return;
+    }
+
     setRecordLoading(true);
     try {
+      // Build the record payload
+      const recordPayload: any = {
+        type: recordForm.type,
+        name: recordForm.name,
+        ttl: Number(recordForm.ttl) || undefined,
+        proxied: Boolean(recordForm.proxied),
+        comment: recordForm.comment || undefined,
+        tags: recordForm.tags || undefined,
+      };
+
+      // For CERT records, use structured data format
+      if (recordForm.type === 'CERT') {
+        recordPayload.data = {
+          type: Number(recordForm.certType),
+          key_tag: Number(recordForm.certKeyTag),
+          algorithm: Number(recordForm.certAlgorithm),
+          certificate: recordForm.certCertificate.replace(/\s/g, ''), // Remove all whitespace
+        };
+      } else if (recordForm.type === 'CAA') {
+        // For CAA records, use structured data format
+        recordPayload.data = {
+          flags: Number(recordForm.caaFlags),
+          tag: recordForm.caaTag,
+          value: recordForm.caaValue,
+        };
+      } else if (recordForm.type === 'DNSKEY') {
+        // For DNSKEY records, use structured data format
+        recordPayload.data = {
+          flags: Number(recordForm.dnskeyFlags),
+          protocol: Number(recordForm.dnskeyProtocol),
+          algorithm: Number(recordForm.dnskeyAlgorithm),
+          public_key: recordForm.dnskeyPublicKey.replace(/\s/g, ''), // Remove all whitespace
+        };
+      } else if (recordForm.type === 'SMIMEA') {
+        // For SMIMEA records, use structured data format
+        recordPayload.data = {
+          usage: Number(recordForm.smimeaUsage),
+          selector: Number(recordForm.smimeaSelector),
+          matching_type: Number(recordForm.smimeaMatchingType),
+          certificate: recordForm.smimeaCertificate.replace(/\s/g, ''), // Remove all whitespace
+        };
+      } else if (recordForm.type === 'SSHFP') {
+        // For SSHFP records, use structured data format
+        recordPayload.data = {
+          algorithm: Number(recordForm.sshfpAlgorithm),
+          type: Number(recordForm.sshfpFptype),
+          fingerprint: recordForm.sshfpFingerprint.replace(/\s/g, ''), // Remove all whitespace
+        };
+      } else {
+        // For other records, use simple content field
+        recordPayload.content = recordForm.content;
+        if (recordForm.priority) {
+          recordPayload.priority = Number(recordForm.priority);
+        }
+      }
+
       await createCloudflareRecord(
         numericZoneId,
-        {
-          type: recordForm.type,
-          name: recordForm.name,
-          content: recordForm.content,
-          ttl: Number(recordForm.ttl) || undefined,
-          proxied: Boolean(recordForm.proxied),
-          priority: Number(recordForm.priority) || undefined,
-          comment: recordForm.comment || undefined,
-          tags: recordForm.tags || undefined,
-        },
+        recordPayload,
         syncRemote,
       );
       setRecordForm(defaultRecordForm);
@@ -347,6 +728,123 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
 
   function startEditRecord(record: CloudflareRecord) {
     setEditingRecordId(record.id);
+
+    // For CERT records, parse the structured data
+    let certData = {
+      certType: 0,
+      certKeyTag: 0,
+      certAlgorithm: 0,
+      certCertificate: "",
+    };
+
+    if (record.record_type === 'CERT' && record.content) {
+      // Try to parse if content contains structured data as JSON
+      try {
+        const data = JSON.parse(record.content);
+        certData = {
+          certType: data.type || 0,
+          certKeyTag: data.key_tag || 0,
+          certAlgorithm: data.algorithm || 0,
+          certCertificate: data.certificate || "",
+        };
+      } catch (e) {
+        // If not JSON, content might be the certificate itself
+        certData.certCertificate = record.content;
+      }
+    }
+
+    // For CAA records, parse the structured data
+    let caaData = {
+      caaFlags: 0,
+      caaTag: "issue",
+      caaValue: "",
+    };
+
+    if (record.record_type === 'CAA' && record.content) {
+      // Try to parse if content contains structured data as JSON
+      try {
+        const data = JSON.parse(record.content);
+        caaData = {
+          caaFlags: data.flags || 0,
+          caaTag: data.tag || "issue",
+          caaValue: data.value || "",
+        };
+      } catch (e) {
+        // If not JSON, content might be the value itself
+        caaData.caaValue = record.content;
+      }
+    }
+
+    // For DNSKEY records, parse the structured data
+    let dnskeyData = {
+      dnskeyFlags: 257,
+      dnskeyProtocol: 3,
+      dnskeyAlgorithm: 8,
+      dnskeyPublicKey: "",
+    };
+
+    if (record.record_type === 'DNSKEY' && record.content) {
+      // Try to parse if content contains structured data as JSON
+      try {
+        const data = JSON.parse(record.content);
+        dnskeyData = {
+          dnskeyFlags: data.flags || 257,
+          dnskeyProtocol: data.protocol || 3,
+          dnskeyAlgorithm: data.algorithm || 8,
+          dnskeyPublicKey: data.public_key || "",
+        };
+      } catch (e) {
+        // If not JSON, content might be the public key itself
+        dnskeyData.dnskeyPublicKey = record.content;
+      }
+    }
+
+    // For SMIMEA records, parse the structured data
+    let smimeaData = {
+      smimeaUsage: 3,
+      smimeaSelector: 1,
+      smimeaMatchingType: 1,
+      smimeaCertificate: "",
+    };
+
+    if (record.record_type === 'SMIMEA' && record.content) {
+      // Try to parse if content contains structured data as JSON
+      try {
+        const data = JSON.parse(record.content);
+        smimeaData = {
+          smimeaUsage: data.usage || 3,
+          smimeaSelector: data.selector || 1,
+          smimeaMatchingType: data.matching_type || 1,
+          smimeaCertificate: data.certificate || "",
+        };
+      } catch (e) {
+        // If not JSON, content might be the certificate itself
+        smimeaData.smimeaCertificate = record.content;
+      }
+    }
+
+    // For SSHFP records, parse the structured data
+    let sshfpData = {
+      sshfpAlgorithm: 1,
+      sshfpFptype: 2,
+      sshfpFingerprint: "",
+    };
+
+    if (record.record_type === 'SSHFP' && record.content) {
+      // Try to parse if content contains structured data as JSON
+      try {
+        const data = JSON.parse(record.content);
+        sshfpData = {
+          sshfpAlgorithm: data.algorithm || 1,
+          sshfpFptype: data.type || 2,
+          sshfpFingerprint: data.fingerprint || "",
+        };
+      } catch (e) {
+        // If not JSON, content might be the fingerprint itself
+        sshfpData.sshfpFingerprint = record.content;
+      }
+    }
+
     setEditForm({
       type: record.record_type,
       name: record.name,
@@ -358,6 +856,11 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
       port: 0,
       comment: record.comment || "",
       tags: record.tags || "",
+      ...certData,
+      ...caaData,
+      ...dnskeyData,
+      ...smimeaData,
+      ...sshfpData,
     });
   }
 
@@ -370,20 +873,75 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
     event.preventDefault();
     if (editingRecordId === null) return;
     setRecordMessage(null);
+
+    // Validate content based on record type
+    const contentValidation = validateRecordContent(editForm.type, editForm.content, editForm);
+    if (!contentValidation.valid) {
+      toast.error(contentValidation.error || "Invalid content for this record type");
+      return;
+    }
+
     setRecordLoading(true);
     try {
+      // Build the record payload
+      const recordPayload: any = {
+        type: editForm.type,
+        name: editForm.name,
+        ttl: Number(editForm.ttl) || undefined,
+        proxied: Boolean(editForm.proxied),
+        comment: editForm.comment || undefined,
+        tags: editForm.tags || undefined,
+      };
+
+      // For CERT records, use structured data format
+      if (editForm.type === 'CERT') {
+        recordPayload.data = {
+          type: Number(editForm.certType),
+          key_tag: Number(editForm.certKeyTag),
+          algorithm: Number(editForm.certAlgorithm),
+          certificate: editForm.certCertificate.replace(/\s/g, ''), // Remove all whitespace
+        };
+      } else if (editForm.type === 'CAA') {
+        // For CAA records, use structured data format
+        recordPayload.data = {
+          flags: Number(editForm.caaFlags),
+          tag: editForm.caaTag,
+          value: editForm.caaValue,
+        };
+      } else if (editForm.type === 'DNSKEY') {
+        // For DNSKEY records, use structured data format
+        recordPayload.data = {
+          flags: Number(editForm.dnskeyFlags),
+          protocol: Number(editForm.dnskeyProtocol),
+          algorithm: Number(editForm.dnskeyAlgorithm),
+          public_key: editForm.dnskeyPublicKey.replace(/\s/g, ''), // Remove all whitespace
+        };
+      } else if (editForm.type === 'SMIMEA') {
+        // For SMIMEA records, use structured data format
+        recordPayload.data = {
+          usage: Number(editForm.smimeaUsage),
+          selector: Number(editForm.smimeaSelector),
+          matching_type: Number(editForm.smimeaMatchingType),
+          certificate: editForm.smimeaCertificate.replace(/\s/g, ''), // Remove all whitespace
+        };
+      } else if (editForm.type === 'SSHFP') {
+        // For SSHFP records, use structured data format
+        recordPayload.data = {
+          algorithm: Number(editForm.sshfpAlgorithm),
+          type: Number(editForm.sshfpFptype),
+          fingerprint: editForm.sshfpFingerprint.replace(/\s/g, ''), // Remove all whitespace
+        };
+      } else {
+        // For other records, use simple content field
+        recordPayload.content = editForm.content;
+        if (editForm.priority) {
+          recordPayload.priority = Number(editForm.priority);
+        }
+      }
+
       await updateCloudflareRecord(
         editingRecordId,
-        {
-          type: editForm.type,
-          name: editForm.name,
-          content: editForm.content,
-          ttl: Number(editForm.ttl) || undefined,
-          proxied: Boolean(editForm.proxied),
-          priority: Number(editForm.priority) || undefined,
-          comment: editForm.comment || undefined,
-          tags: editForm.tags || undefined,
-        },
+        recordPayload,
         syncRemote,
       );
       setEditingRecordId(null);
@@ -854,20 +1412,354 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
                     />
                     <p className="mt-1 text-xs text-gray-500">Use @ for root</p>
                   </div>
-                  <div className="md:col-span-2">
-                    <Label htmlFor="record-content" className="text-sm font-medium">
-                      {(RECORD_TYPES[recordForm.type] || RECORD_TYPES.A).contentLabel} (required)
-                    </Label>
-                    <Input
-                      id="record-content"
-                      value={recordForm.content}
-                      onChange={(e) => handleRecordFormChange("content", e.target.value)}
-                      placeholder={(RECORD_TYPES[recordForm.type] || RECORD_TYPES.A).contentPlaceholder}
-                      className="mt-1"
-                      required
-                    />
-                  </div>
+                  {recordForm.type !== 'CERT' && recordForm.type !== 'CAA' && recordForm.type !== 'DNSKEY' && recordForm.type !== 'SMIMEA' && recordForm.type !== 'SSHFP' && (
+                    <div className="md:col-span-2">
+                      <Label htmlFor="record-content" className="text-sm font-medium">
+                        {(RECORD_TYPES[recordForm.type] || RECORD_TYPES.A).contentLabel} (required)
+                        {recordForm.type === 'A' && ' - IPv4 address'}
+                        {recordForm.type === 'AAAA' && ' - IPv6 address'}
+                        {(recordForm.type === 'CNAME' || recordForm.type === 'MX' || recordForm.type === 'NS') && ' - Domain name'}
+                      </Label>
+                      {recordForm.type === 'TXT' ? (
+                        <Textarea
+                          id="record-content"
+                          value={recordForm.content}
+                          onChange={(e) => handleRecordFormChange("content", e.target.value)}
+                          className="mt-1"
+                          rows={3}
+                          required
+                        />
+                      ) : (
+                        <Input
+                          id="record-content"
+                          value={recordForm.content}
+                          onChange={(e) => handleRecordFormChange("content", e.target.value)}
+                          placeholder={
+                            recordForm.type === 'A' ? 'e.g., 192.168.1.1' :
+                            recordForm.type === 'AAAA' ? 'e.g., 2001:db8::1' :
+                            (recordForm.type === 'CNAME' || recordForm.type === 'MX' || recordForm.type === 'NS') ? 'e.g., example.com' :
+                            (RECORD_TYPES[recordForm.type] || RECORD_TYPES.A).contentPlaceholder
+                          }
+                          className="mt-1"
+                          required
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
+
+                {/* CERT record structured fields */}
+                {recordForm.type === 'CERT' && (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-4 border-t pt-4">
+                    <div>
+                      <Label htmlFor="cert-type" className="text-sm font-medium">Type *</Label>
+                      <select
+                        id="cert-type"
+                        value={recordForm.certType}
+                        onChange={(e) => handleRecordFormChange("certType", Number(e.target.value))}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="0">0 - Reserved</option>
+                        <option value="1">1 - PKIX (X.509 certificate)</option>
+                        <option value="2">2 - SPKI (Simple Public Key)</option>
+                        <option value="3">3 - PGP (OpenPGP key)</option>
+                        <option value="253">253 - Experimental</option>
+                        <option value="254">254 - Experimental</option>
+                        <option value="255">255 - Reserved</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label htmlFor="cert-key-tag" className="text-sm font-medium">Key Tag *</Label>
+                      <Input
+                        id="cert-key-tag"
+                        type="number"
+                        min="0"
+                        max="65535"
+                        value={recordForm.certKeyTag}
+                        onChange={(e) => handleRecordFormChange("certKeyTag", Number(e.target.value))}
+                        className="mt-1"
+                        required
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Integer: 0-65535</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="cert-algorithm" className="text-sm font-medium">Algorithm *</Label>
+                      <select
+                        id="cert-algorithm"
+                        value={recordForm.certAlgorithm}
+                        onChange={(e) => handleRecordFormChange("certAlgorithm", Number(e.target.value))}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="0">0 - Reserved</option>
+                        <option value="1">1 - RSA/MD5 (deprecated)</option>
+                        <option value="2">2 - Diffie-Hellman</option>
+                        <option value="3">3 - DSA/SHA-1</option>
+                        <option value="5">5 - RSA/SHA-1</option>
+                        <option value="6">6 - DSA-NSEC3-SHA1</option>
+                        <option value="7">7 - RSASHA1-NSEC3-SHA1</option>
+                        <option value="8">8 - RSA/SHA-256</option>
+                        <option value="10">10 - RSA/SHA-512</option>
+                        <option value="12">12 - GOST R 34.10-2001</option>
+                        <option value="13">13 - ECDSA/SHA-256</option>
+                        <option value="14">14 - ECDSA/SHA-384</option>
+                        <option value="15">15 - Ed25519</option>
+                        <option value="16">16 - Ed448</option>
+                        <option value="253">253 - Private algorithm</option>
+                        <option value="254">254 - Private algorithm</option>
+                        <option value="255">255 - Reserved</option>
+                      </select>
+                    </div>
+                    <div className="md:col-span-4">
+                      <Label htmlFor="cert-certificate" className="text-sm font-medium">Certificate (Base64) *</Label>
+                      <Textarea
+                        id="cert-certificate"
+                        value={recordForm.certCertificate}
+                        onChange={(e) => handleRecordFormChange("certCertificate", e.target.value)}
+                        className="mt-1 font-mono text-xs"
+                        rows={6}
+                        placeholder="Base64 encoded certificate data (A-Z, a-z, 0-9, +, /, =)"
+                        required
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Only valid base64 characters allowed. Whitespace will be removed.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* CAA record structured fields */}
+                {recordForm.type === 'CAA' && (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3 border-t pt-4">
+                    <div>
+                      <Label htmlFor="caa-flags" className="text-sm font-medium">Flags *</Label>
+                      <select
+                        id="caa-flags"
+                        value={recordForm.caaFlags}
+                        onChange={(e) => handleRecordFormChange("caaFlags", Number(e.target.value))}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="0">0 - Non-critical</option>
+                        <option value="128">128 - Critical (issuer must understand tag)</option>
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">Critical flag enforces tag understanding</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="caa-tag" className="text-sm font-medium">Tag *</Label>
+                      <select
+                        id="caa-tag"
+                        value={recordForm.caaTag}
+                        onChange={(e) => handleRecordFormChange("caaTag", e.target.value)}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="issue">issue - Authorize certificate issuance</option>
+                        <option value="issuewild">issuewild - Authorize wildcard certificate issuance</option>
+                        <option value="iodef">iodef - Report policy violations to URL</option>
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">Property to control</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="caa-value" className="text-sm font-medium">Value *</Label>
+                      <Input
+                        id="caa-value"
+                        value={recordForm.caaValue}
+                        onChange={(e) => handleRecordFormChange("caaValue", e.target.value)}
+                        className="mt-1"
+                        placeholder="e.g., letsencrypt.org or mailto:admin@example.com"
+                        required
+                      />
+                      <p className="mt-1 text-xs text-gray-500">CA domain or iodef URL</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* DNSKEY record structured fields */}
+                {recordForm.type === 'DNSKEY' && (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-4 border-t pt-4">
+                    <div>
+                      <Label htmlFor="dnskey-flags" className="text-sm font-medium">Flags *</Label>
+                      <select
+                        id="dnskey-flags"
+                        value={recordForm.dnskeyFlags}
+                        onChange={(e) => handleRecordFormChange("dnskeyFlags", Number(e.target.value))}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="0">0 - Reserved</option>
+                        <option value="256">256 - Zone Signing Key (ZSK)</option>
+                        <option value="257">257 - Key Signing Key (KSK)</option>
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">Key type</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="dnskey-protocol" className="text-sm font-medium">Protocol *</Label>
+                      <Input
+                        id="dnskey-protocol"
+                        type="number"
+                        value={3}
+                        disabled
+                        className="mt-1 bg-gray-100"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Always 3 for DNSSEC</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="dnskey-algorithm" className="text-sm font-medium">Algorithm *</Label>
+                      <select
+                        id="dnskey-algorithm"
+                        value={recordForm.dnskeyAlgorithm}
+                        onChange={(e) => handleRecordFormChange("dnskeyAlgorithm", Number(e.target.value))}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="0">0 - Reserved</option>
+                        <option value="1">1 - RSA/MD5 (deprecated)</option>
+                        <option value="2">2 - Diffie-Hellman</option>
+                        <option value="3">3 - DSA/SHA-1</option>
+                        <option value="5">5 - RSA/SHA-1</option>
+                        <option value="6">6 - DSA-NSEC3-SHA1</option>
+                        <option value="7">7 - RSASHA1-NSEC3-SHA1</option>
+                        <option value="8">8 - RSA/SHA-256</option>
+                        <option value="10">10 - RSA/SHA-512</option>
+                        <option value="12">12 - GOST R 34.10-2001</option>
+                        <option value="13">13 - ECDSA/SHA-256</option>
+                        <option value="14">14 - ECDSA/SHA-384</option>
+                        <option value="15">15 - Ed25519</option>
+                        <option value="16">16 - Ed448</option>
+                        <option value="253">253 - Private algorithm</option>
+                        <option value="254">254 - Private algorithm</option>
+                        <option value="255">255 - Reserved</option>
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">Cryptographic algorithm</p>
+                    </div>
+                    <div className="md:col-span-4">
+                      <Label htmlFor="dnskey-public-key" className="text-sm font-medium">Public Key (Base64) *</Label>
+                      <Textarea
+                        id="dnskey-public-key"
+                        value={recordForm.dnskeyPublicKey}
+                        onChange={(e) => handleRecordFormChange("dnskeyPublicKey", e.target.value)}
+                        className="mt-1 font-mono text-xs"
+                        rows={6}
+                        placeholder="Base64 encoded public key data (A-Z, a-z, 0-9, +, /, =)"
+                        required
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Only valid base64 characters allowed. Whitespace will be removed.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* SMIMEA record structured fields */}
+                {recordForm.type === 'SMIMEA' && (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-4 border-t pt-4">
+                    <div>
+                      <Label htmlFor="smimea-usage" className="text-sm font-medium">Usage *</Label>
+                      <select
+                        id="smimea-usage"
+                        value={recordForm.smimeaUsage}
+                        onChange={(e) => handleRecordFormChange("smimeaUsage", Number(e.target.value))}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="0">0 - CA constraint</option>
+                        <option value="1">1 - Service certificate constraint</option>
+                        <option value="2">2 - Trust anchor assertion</option>
+                        <option value="3">3 - Domain-issued certificate</option>
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">Certificate usage</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="smimea-selector" className="text-sm font-medium">Selector *</Label>
+                      <select
+                        id="smimea-selector"
+                        value={recordForm.smimeaSelector}
+                        onChange={(e) => handleRecordFormChange("smimeaSelector", Number(e.target.value))}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="0">0 - Full certificate</option>
+                        <option value="1">1 - SubjectPublicKeyInfo</option>
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">What is matched</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="smimea-matching-type" className="text-sm font-medium">Matching Type *</Label>
+                      <select
+                        id="smimea-matching-type"
+                        value={recordForm.smimeaMatchingType}
+                        onChange={(e) => handleRecordFormChange("smimeaMatchingType", Number(e.target.value))}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="0">0 - No hash</option>
+                        <option value="1">1 - SHA-256</option>
+                        <option value="2">2 - SHA-512</option>
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">Hash algorithm</p>
+                    </div>
+                    <div className="md:col-span-4">
+                      <Label htmlFor="smimea-certificate" className="text-sm font-medium">Certificate (Base64/Hex) *</Label>
+                      <Textarea
+                        id="smimea-certificate"
+                        value={recordForm.smimeaCertificate}
+                        onChange={(e) => handleRecordFormChange("smimeaCertificate", e.target.value)}
+                        className="mt-1 font-mono text-xs"
+                        rows={6}
+                        placeholder="Base64 or hexadecimal encoded certificate data (A-Z, a-z, 0-9, +, /, =)"
+                        required
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Only valid base64/hex characters allowed. Whitespace will be removed.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* SSHFP record structured fields */}
+                {recordForm.type === 'SSHFP' && (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3 border-t pt-4">
+                    <div>
+                      <Label htmlFor="sshfp-algorithm" className="text-sm font-medium">Algorithm *</Label>
+                      <select
+                        id="sshfp-algorithm"
+                        value={recordForm.sshfpAlgorithm}
+                        onChange={(e) => handleRecordFormChange("sshfpAlgorithm", Number(e.target.value))}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="1">1 - RSA</option>
+                        <option value="2">2 - DSS</option>
+                        <option value="3">3 - ECDSA</option>
+                        <option value="4">4 - Ed25519</option>
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">SSH key algorithm</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="sshfp-fptype" className="text-sm font-medium">Fingerprint Type *</Label>
+                      <select
+                        id="sshfp-fptype"
+                        value={recordForm.sshfpFptype}
+                        onChange={(e) => handleRecordFormChange("sshfpFptype", Number(e.target.value))}
+                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                        required
+                      >
+                        <option value="1">1 - SHA-1</option>
+                        <option value="2">2 - SHA-256</option>
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">Hash algorithm</p>
+                    </div>
+                    <div className="md:col-span-3">
+                      <Label htmlFor="sshfp-fingerprint" className="text-sm font-medium">Fingerprint (Hex) *</Label>
+                      <Textarea
+                        id="sshfp-fingerprint"
+                        value={recordForm.sshfpFingerprint}
+                        onChange={(e) => handleRecordFormChange("sshfpFingerprint", e.target.value)}
+                        className="mt-1 font-mono text-xs"
+                        rows={3}
+                        placeholder="Hexadecimal fingerprint (0-9, A-F)"
+                        required
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Only valid hexadecimal characters allowed. Whitespace will be removed.</p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
                   <div>
@@ -1057,20 +1949,354 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
                                     />
                                     <p className="mt-1 text-xs text-gray-500">Use @ for root</p>
                                   </div>
-                                  <div className="md:col-span-2">
-                                    <Label htmlFor="edit-content" className="text-sm font-medium">
-                                      {recordTypeConfig.contentLabel} (required)
-                                    </Label>
-                                    <Input
-                                      id="edit-content"
-                                      value={editForm.content}
-                                      onChange={(e) => handleEditFormChange("content", e.target.value)}
-                                      placeholder={recordTypeConfig.contentPlaceholder}
-                                      className="mt-1"
-                                      required
-                                    />
-                                  </div>
+                                  {editForm.type !== 'CERT' && editForm.type !== 'CAA' && editForm.type !== 'DNSKEY' && editForm.type !== 'SMIMEA' && editForm.type !== 'SSHFP' && (
+                                    <div className="md:col-span-2">
+                                      <Label htmlFor="edit-content" className="text-sm font-medium">
+                                        {recordTypeConfig.contentLabel} (required)
+                                        {editForm.type === 'A' && ' - IPv4 address'}
+                                        {editForm.type === 'AAAA' && ' - IPv6 address'}
+                                        {(editForm.type === 'CNAME' || editForm.type === 'MX' || editForm.type === 'NS') && ' - Domain name'}
+                                      </Label>
+                                      {editForm.type === 'TXT' ? (
+                                        <Textarea
+                                          id="edit-content"
+                                          value={editForm.content}
+                                          onChange={(e) => handleEditFormChange("content", e.target.value)}
+                                          className="mt-1"
+                                          rows={3}
+                                          required
+                                        />
+                                      ) : (
+                                        <Input
+                                          id="edit-content"
+                                          value={editForm.content}
+                                          onChange={(e) => handleEditFormChange("content", e.target.value)}
+                                          placeholder={
+                                            editForm.type === 'A' ? 'e.g., 192.168.1.1' :
+                                            editForm.type === 'AAAA' ? 'e.g., 2001:db8::1' :
+                                            (editForm.type === 'CNAME' || editForm.type === 'MX' || editForm.type === 'NS') ? 'e.g., example.com' :
+                                            recordTypeConfig.contentPlaceholder
+                                          }
+                                          className="mt-1"
+                                          required
+                                        />
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
+
+                                {/* CERT record structured fields for edit */}
+                                {editForm.type === 'CERT' && (
+                                  <div className="grid grid-cols-1 gap-4 md:grid-cols-4 border-t pt-4">
+                                    <div>
+                                      <Label htmlFor="edit-cert-type" className="text-sm font-medium">Type *</Label>
+                                      <select
+                                        id="edit-cert-type"
+                                        value={editForm.certType}
+                                        onChange={(e) => handleEditFormChange("certType", Number(e.target.value))}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="0">0 - Reserved</option>
+                                        <option value="1">1 - PKIX (X.509 certificate)</option>
+                                        <option value="2">2 - SPKI (Simple Public Key)</option>
+                                        <option value="3">3 - PGP (OpenPGP key)</option>
+                                        <option value="253">253 - Experimental</option>
+                                        <option value="254">254 - Experimental</option>
+                                        <option value="255">255 - Reserved</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="edit-cert-key-tag" className="text-sm font-medium">Key Tag *</Label>
+                                      <Input
+                                        id="edit-cert-key-tag"
+                                        type="number"
+                                        min="0"
+                                        max="65535"
+                                        value={editForm.certKeyTag}
+                                        onChange={(e) => handleEditFormChange("certKeyTag", Number(e.target.value))}
+                                        className="mt-1"
+                                        required
+                                      />
+                                      <p className="mt-1 text-xs text-gray-500">Integer: 0-65535</p>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="edit-cert-algorithm" className="text-sm font-medium">Algorithm *</Label>
+                                      <select
+                                        id="edit-cert-algorithm"
+                                        value={editForm.certAlgorithm}
+                                        onChange={(e) => handleEditFormChange("certAlgorithm", Number(e.target.value))}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="0">0 - Reserved</option>
+                                        <option value="1">1 - RSA/MD5 (deprecated)</option>
+                                        <option value="2">2 - Diffie-Hellman</option>
+                                        <option value="3">3 - DSA/SHA-1</option>
+                                        <option value="5">5 - RSA/SHA-1</option>
+                                        <option value="6">6 - DSA-NSEC3-SHA1</option>
+                                        <option value="7">7 - RSASHA1-NSEC3-SHA1</option>
+                                        <option value="8">8 - RSA/SHA-256</option>
+                                        <option value="10">10 - RSA/SHA-512</option>
+                                        <option value="12">12 - GOST R 34.10-2001</option>
+                                        <option value="13">13 - ECDSA/SHA-256</option>
+                                        <option value="14">14 - ECDSA/SHA-384</option>
+                                        <option value="15">15 - Ed25519</option>
+                                        <option value="16">16 - Ed448</option>
+                                        <option value="253">253 - Private algorithm</option>
+                                        <option value="254">254 - Private algorithm</option>
+                                        <option value="255">255 - Reserved</option>
+                                      </select>
+                                    </div>
+                                    <div className="md:col-span-4">
+                                      <Label htmlFor="edit-cert-certificate" className="text-sm font-medium">Certificate (Base64) *</Label>
+                                      <Textarea
+                                        id="edit-cert-certificate"
+                                        value={editForm.certCertificate}
+                                        onChange={(e) => handleEditFormChange("certCertificate", e.target.value)}
+                                        className="mt-1 font-mono text-xs"
+                                        rows={6}
+                                        placeholder="Base64 encoded certificate data (A-Z, a-z, 0-9, +, /, =)"
+                                        required
+                                      />
+                                      <p className="mt-1 text-xs text-gray-500">Only valid base64 characters allowed. Whitespace will be removed.</p>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* CAA record structured fields for edit */}
+                                {editForm.type === 'CAA' && (
+                                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3 border-t pt-4">
+                                    <div>
+                                      <Label htmlFor="edit-caa-flags" className="text-sm font-medium">Flags *</Label>
+                                      <select
+                                        id="edit-caa-flags"
+                                        value={editForm.caaFlags}
+                                        onChange={(e) => handleEditFormChange("caaFlags", Number(e.target.value))}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="0">0 - Non-critical</option>
+                                        <option value="128">128 - Critical (issuer must understand tag)</option>
+                                      </select>
+                                      <p className="mt-1 text-xs text-gray-500">Critical flag enforces tag understanding</p>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="edit-caa-tag" className="text-sm font-medium">Tag *</Label>
+                                      <select
+                                        id="edit-caa-tag"
+                                        value={editForm.caaTag}
+                                        onChange={(e) => handleEditFormChange("caaTag", e.target.value)}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="issue">issue - Authorize certificate issuance</option>
+                                        <option value="issuewild">issuewild - Authorize wildcard certificate issuance</option>
+                                        <option value="iodef">iodef - Report policy violations to URL</option>
+                                      </select>
+                                      <p className="mt-1 text-xs text-gray-500">Property to control</p>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="edit-caa-value" className="text-sm font-medium">Value *</Label>
+                                      <Input
+                                        id="edit-caa-value"
+                                        value={editForm.caaValue}
+                                        onChange={(e) => handleEditFormChange("caaValue", e.target.value)}
+                                        className="mt-1"
+                                        placeholder="e.g., letsencrypt.org or mailto:admin@example.com"
+                                        required
+                                      />
+                                      <p className="mt-1 text-xs text-gray-500">CA domain or iodef URL</p>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* DNSKEY record structured fields for edit */}
+                                {editForm.type === 'DNSKEY' && (
+                                  <div className="grid grid-cols-1 gap-4 md:grid-cols-4 border-t pt-4">
+                                    <div>
+                                      <Label htmlFor="edit-dnskey-flags" className="text-sm font-medium">Flags *</Label>
+                                      <select
+                                        id="edit-dnskey-flags"
+                                        value={editForm.dnskeyFlags}
+                                        onChange={(e) => handleEditFormChange("dnskeyFlags", Number(e.target.value))}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="0">0 - Reserved</option>
+                                        <option value="256">256 - Zone Signing Key (ZSK)</option>
+                                        <option value="257">257 - Key Signing Key (KSK)</option>
+                                      </select>
+                                      <p className="mt-1 text-xs text-gray-500">Key type</p>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="edit-dnskey-protocol" className="text-sm font-medium">Protocol *</Label>
+                                      <Input
+                                        id="edit-dnskey-protocol"
+                                        type="number"
+                                        value={3}
+                                        disabled
+                                        className="mt-1 bg-gray-100"
+                                      />
+                                      <p className="mt-1 text-xs text-gray-500">Always 3 for DNSSEC</p>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="edit-dnskey-algorithm" className="text-sm font-medium">Algorithm *</Label>
+                                      <select
+                                        id="edit-dnskey-algorithm"
+                                        value={editForm.dnskeyAlgorithm}
+                                        onChange={(e) => handleEditFormChange("dnskeyAlgorithm", Number(e.target.value))}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="0">0 - Reserved</option>
+                                        <option value="1">1 - RSA/MD5 (deprecated)</option>
+                                        <option value="2">2 - Diffie-Hellman</option>
+                                        <option value="3">3 - DSA/SHA-1</option>
+                                        <option value="5">5 - RSA/SHA-1</option>
+                                        <option value="6">6 - DSA-NSEC3-SHA1</option>
+                                        <option value="7">7 - RSASHA1-NSEC3-SHA1</option>
+                                        <option value="8">8 - RSA/SHA-256</option>
+                                        <option value="10">10 - RSA/SHA-512</option>
+                                        <option value="12">12 - GOST R 34.10-2001</option>
+                                        <option value="13">13 - ECDSA/SHA-256</option>
+                                        <option value="14">14 - ECDSA/SHA-384</option>
+                                        <option value="15">15 - Ed25519</option>
+                                        <option value="16">16 - Ed448</option>
+                                        <option value="253">253 - Private algorithm</option>
+                                        <option value="254">254 - Private algorithm</option>
+                                        <option value="255">255 - Reserved</option>
+                                      </select>
+                                      <p className="mt-1 text-xs text-gray-500">Cryptographic algorithm</p>
+                                    </div>
+                                    <div className="md:col-span-4">
+                                      <Label htmlFor="edit-dnskey-public-key" className="text-sm font-medium">Public Key (Base64) *</Label>
+                                      <Textarea
+                                        id="edit-dnskey-public-key"
+                                        value={editForm.dnskeyPublicKey}
+                                        onChange={(e) => handleEditFormChange("dnskeyPublicKey", e.target.value)}
+                                        className="mt-1 font-mono text-xs"
+                                        rows={6}
+                                        placeholder="Base64 encoded public key data (A-Z, a-z, 0-9, +, /, =)"
+                                        required
+                                      />
+                                      <p className="mt-1 text-xs text-gray-500">Only valid base64 characters allowed. Whitespace will be removed.</p>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* SMIMEA record structured fields for edit */}
+                                {editForm.type === 'SMIMEA' && (
+                                  <div className="grid grid-cols-1 gap-4 md:grid-cols-4 border-t pt-4">
+                                    <div>
+                                      <Label htmlFor="edit-smimea-usage" className="text-sm font-medium">Usage *</Label>
+                                      <select
+                                        id="edit-smimea-usage"
+                                        value={editForm.smimeaUsage}
+                                        onChange={(e) => handleEditFormChange("smimeaUsage", Number(e.target.value))}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="0">0 - CA constraint</option>
+                                        <option value="1">1 - Service certificate constraint</option>
+                                        <option value="2">2 - Trust anchor assertion</option>
+                                        <option value="3">3 - Domain-issued certificate</option>
+                                      </select>
+                                      <p className="mt-1 text-xs text-gray-500">Certificate usage</p>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="edit-smimea-selector" className="text-sm font-medium">Selector *</Label>
+                                      <select
+                                        id="edit-smimea-selector"
+                                        value={editForm.smimeaSelector}
+                                        onChange={(e) => handleEditFormChange("smimeaSelector", Number(e.target.value))}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="0">0 - Full certificate</option>
+                                        <option value="1">1 - SubjectPublicKeyInfo</option>
+                                      </select>
+                                      <p className="mt-1 text-xs text-gray-500">What is matched</p>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="edit-smimea-matching-type" className="text-sm font-medium">Matching Type *</Label>
+                                      <select
+                                        id="edit-smimea-matching-type"
+                                        value={editForm.smimeaMatchingType}
+                                        onChange={(e) => handleEditFormChange("smimeaMatchingType", Number(e.target.value))}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="0">0 - No hash</option>
+                                        <option value="1">1 - SHA-256</option>
+                                        <option value="2">2 - SHA-512</option>
+                                      </select>
+                                      <p className="mt-1 text-xs text-gray-500">Hash algorithm</p>
+                                    </div>
+                                    <div className="md:col-span-4">
+                                      <Label htmlFor="edit-smimea-certificate" className="text-sm font-medium">Certificate (Base64/Hex) *</Label>
+                                      <Textarea
+                                        id="edit-smimea-certificate"
+                                        value={editForm.smimeaCertificate}
+                                        onChange={(e) => handleEditFormChange("smimeaCertificate", e.target.value)}
+                                        className="mt-1 font-mono text-xs"
+                                        rows={6}
+                                        placeholder="Base64 or hexadecimal encoded certificate data (A-Z, a-z, 0-9, +, /, =)"
+                                        required
+                                      />
+                                      <p className="mt-1 text-xs text-gray-500">Only valid base64/hex characters allowed. Whitespace will be removed.</p>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* SSHFP record structured fields for edit */}
+                                {editForm.type === 'SSHFP' && (
+                                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3 border-t pt-4">
+                                    <div>
+                                      <Label htmlFor="edit-sshfp-algorithm" className="text-sm font-medium">Algorithm *</Label>
+                                      <select
+                                        id="edit-sshfp-algorithm"
+                                        value={editForm.sshfpAlgorithm}
+                                        onChange={(e) => handleEditFormChange("sshfpAlgorithm", Number(e.target.value))}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="1">1 - RSA</option>
+                                        <option value="2">2 - DSS</option>
+                                        <option value="3">3 - ECDSA</option>
+                                        <option value="4">4 - Ed25519</option>
+                                      </select>
+                                      <p className="mt-1 text-xs text-gray-500">SSH key algorithm</p>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="edit-sshfp-fptype" className="text-sm font-medium">Fingerprint Type *</Label>
+                                      <select
+                                        id="edit-sshfp-fptype"
+                                        value={editForm.sshfpFptype}
+                                        onChange={(e) => handleEditFormChange("sshfpFptype", Number(e.target.value))}
+                                        className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                                        required
+                                      >
+                                        <option value="1">1 - SHA-1</option>
+                                        <option value="2">2 - SHA-256</option>
+                                      </select>
+                                      <p className="mt-1 text-xs text-gray-500">Hash algorithm</p>
+                                    </div>
+                                    <div className="md:col-span-3">
+                                      <Label htmlFor="edit-sshfp-fingerprint" className="text-sm font-medium">Fingerprint (Hex) *</Label>
+                                      <Textarea
+                                        id="edit-sshfp-fingerprint"
+                                        value={editForm.sshfpFingerprint}
+                                        onChange={(e) => handleEditFormChange("sshfpFingerprint", e.target.value)}
+                                        className="mt-1 font-mono text-xs"
+                                        rows={3}
+                                        placeholder="Hexadecimal fingerprint (0-9, A-F)"
+                                        required
+                                      />
+                                      <p className="mt-1 text-xs text-gray-500">Only valid hexadecimal characters allowed. Whitespace will be removed.</p>
+                                    </div>
+                                  </div>
+                                )}
 
                                 <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
                                   <div>

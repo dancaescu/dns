@@ -498,7 +498,7 @@ mydns_soa_load(SQL *sqlConn, MYDNS_SOA **rptr, const char *origin) {
 
   /* Construct query */
   querylen = sql_build_query(&query,
-			     "SELECT "MYDNS_SOA_FIELDS"%s%s FROM %s WHERE origin='%s'%s%s;",
+			     "SELECT "MYDNS_SOA_FIELDS"%s%s FROM %s WHERE origin='%s' AND deleted_at IS NULL%s%s;",
 			     (mydns_soa_use_active ? ",active" : ""),
 			     (mydns_soa_use_recursive ? ",recursive" : ""),
 			     mydns_soa_table_name, origin,
