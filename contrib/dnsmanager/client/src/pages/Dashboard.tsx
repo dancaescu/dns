@@ -359,6 +359,23 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
     }
   }, [selectedAccountId]);
 
+  // Auto-expand accounts with matching zones when searching, collapse all when not searching
+  useEffect(() => {
+    if (zoneSearch) {
+      // When searching for zones, expand all accounts that have matching zones
+      const accountIdsWithMatches = new Set<number>();
+      cfZones.forEach((zone) => {
+        if (zone.name.toLowerCase().includes(zoneSearch.toLowerCase())) {
+          accountIdsWithMatches.add(zone.account_id);
+        }
+      });
+      setExpandedAccounts(accountIdsWithMatches);
+    } else if (!accountSearch) {
+      // When no filters are active, collapse all accounts
+      setExpandedAccounts(new Set());
+    }
+  }, [zoneSearch, accountSearch, cfZones]);
+
   const filteredSoaRecords = useMemo(() => {
     if (!soaSearch) return soaRecords;
     const lower = soaSearch.toLowerCase();
@@ -507,15 +524,19 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
   async function handleSoaUpdate() {
     if (!editingSoaId) return;
 
+    // Trim string fields
+    const trimmedNs = (editSoaData.ns || "").trim();
+    const trimmedMbox = (editSoaData.mbox || "").trim();
+
     // Validate NS field
-    const nsValidation = validateDnsName(editSoaData.ns || "", "NS");
+    const nsValidation = validateDnsName(trimmedNs, "NS");
     if (!nsValidation.valid) {
       toast.error(nsValidation.error || "Invalid NS field");
       return;
     }
 
     // Validate Mbox field
-    const mboxValidation = validateMbox(editSoaData.mbox || "");
+    const mboxValidation = validateMbox(trimmedMbox);
     if (!mboxValidation.valid) {
       toast.error(mboxValidation.error || "Invalid Mbox field");
       return;
@@ -525,8 +546,8 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
       await apiRequest(`/soa/${editingSoaId}`, {
         method: "PUT",
         body: JSON.stringify({
-          ns: ensureTrailingDot(editSoaData.ns || ""),
-          mbox: ensureTrailingDot(editSoaData.mbox || ""),
+          ns: ensureTrailingDot(trimmedNs),
+          mbox: ensureTrailingDot(trimmedMbox),
           serial: Number(editSoaData.serial),
           refresh: Number(editSoaData.refresh),
           retry: Number(editSoaData.retry),
@@ -552,24 +573,38 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
 
     const form = event.currentTarget; // Store form reference before async operation
     const formData = new FormData(form);
-    const payload = Object.fromEntries(formData.entries());
+    const rawPayload = Object.fromEntries(formData.entries());
+
+    // Trim all string fields
+    const payload = {
+      origin: (rawPayload.origin as string).trim(),
+      ns: (rawPayload.ns as string).trim(),
+      mbox: (rawPayload.mbox as string).trim(),
+      serial: rawPayload.serial,
+      refresh: rawPayload.refresh,
+      retry: rawPayload.retry,
+      expire: rawPayload.expire,
+      minimum: rawPayload.minimum,
+      ttl: rawPayload.ttl,
+      active: rawPayload.active,
+    };
 
     // Validate Origin field
-    const originValidation = validateDnsName(payload.origin as string, "Origin");
+    const originValidation = validateDnsName(payload.origin, "Origin");
     if (!originValidation.valid) {
       toast.error(originValidation.error || "Invalid Origin field");
       return;
     }
 
     // Validate NS field
-    const nsValidation = validateDnsName(payload.ns as string, "NS");
+    const nsValidation = validateDnsName(payload.ns, "NS");
     if (!nsValidation.valid) {
       toast.error(nsValidation.error || "Invalid NS field");
       return;
     }
 
     // Validate Mbox field
-    const mboxValidation = validateMbox(payload.mbox as string);
+    const mboxValidation = validateMbox(payload.mbox);
     if (!mboxValidation.valid) {
       toast.error(mboxValidation.error || "Invalid Mbox field");
       return;
@@ -580,9 +615,9 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
       await apiRequest("/soa", {
         method: "POST",
         body: JSON.stringify({
-          origin: ensureTrailingDot(payload.origin as string),
-          ns: ensureTrailingDot(payload.ns as string),
-          mbox: ensureTrailingDot(payload.mbox as string),
+          origin: ensureTrailingDot(payload.origin),
+          ns: ensureTrailingDot(payload.ns),
+          mbox: ensureTrailingDot(payload.mbox),
           serial: Number(payload.serial || generateSerialNumber()),
           refresh: Number(payload.refresh || 28800),
           retry: Number(payload.retry || 7200),
@@ -719,10 +754,19 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
 
     const form = event.currentTarget; // Store form reference before async operation
     const formData = new FormData(form);
-    const payload = Object.fromEntries(formData.entries());
+    const rawPayload = Object.fromEntries(formData.entries());
+
+    // Trim all string fields
+    const payload = {
+      name: (rawPayload.name as string).trim(),
+      type: (rawPayload.type as string).trim(),
+      data: (rawPayload.data as string).trim(),
+      aux: rawPayload.aux,
+      ttl: rawPayload.ttl,
+    };
 
     // Validate content based on record type
-    const contentValidation = validateRrContent(payload.type as string, payload.data as string);
+    const contentValidation = validateRrContent(payload.type, payload.data);
     if (!contentValidation.valid) {
       toast.error(contentValidation.error || "Invalid content for this record type");
       return;
@@ -756,14 +800,20 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
 
   async function handleRrUpdate() {
     if (!editingRrId || !rrZoneId) return;
+
+    // Trim string fields
+    const trimmedName = (editFormData.name || "").trim();
+    const trimmedType = (editFormData.type || "").trim();
+    const trimmedData = (editFormData.data || "").trim();
+
     try {
       await apiRequest(`/rr/${editingRrId}`, {
         method: "PUT",
         body: JSON.stringify({
           zone: rrZoneId,
-          name: editFormData.name,
-          type: editFormData.type,
-          data: editFormData.data,
+          name: trimmedName,
+          type: trimmedType,
+          data: trimmedData,
           aux: Number(editFormData.aux || 0),
           ttl: Number(editFormData.ttl || 86400),
         }),
@@ -873,17 +923,27 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
 
   const groupedAccounts = useMemo(() => {
     const groups: Record<number, CloudflareZone[]> = {};
-    for (const zone of cfZones) {
+
+    // Filter zones based on search criteria
+    const filteredZones = cfZones.filter((zone) => {
+      const zoneNameMatch = !zoneSearch || zone.name.toLowerCase().includes(zoneSearch.toLowerCase());
+      const accountMatch = !selectedAccountId || zone.account_id === selectedAccountId;
+      return zoneNameMatch && accountMatch;
+    });
+
+    // Group filtered zones by account
+    for (const zone of filteredZones) {
       if (!groups[zone.account_id]) {
         groups[zone.account_id] = [];
       }
       groups[zone.account_id].push(zone);
     }
+
     return Object.entries(groups).map(([accountId, zones]) => ({
       account: cfAccounts.find((acc) => acc.id === Number(accountId)) || null,
       zones,
     }));
-  }, [cfZones, cfAccounts]);
+  }, [cfZones, cfAccounts, zoneSearch, selectedAccountId]);
 
   const toggleAccountSection = (accountId: number) => {
     setExpandedAccounts((prev) => {
@@ -1849,21 +1909,22 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                     </button>
                     {expanded && (
                       <div className="border-t px-4 py-2">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Zone</TableHead>
-                              <TableHead>Status</TableHead>
-                              <TableHead>Plan</TableHead>
-                              <TableHead>Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {zones.map((zone) => (
-                                <TableRow key={zone.id}>
-                                  <TableCell className="max-w-[220px] truncate">{zone.name}</TableCell>
-                                <TableCell>{zone.status}</TableCell>
-                                <TableCell>{zone.plan_name || "—"}</TableCell>
+                        <div className="w-full overflow-x-auto">
+                          <Table className="w-full">
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-auto">Zone</TableHead>
+                                <TableHead className="w-32">Status</TableHead>
+                                <TableHead className="w-32">Plan</TableHead>
+                                <TableHead className="w-64">Actions</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {zones.map((zone) => (
+                                  <TableRow key={zone.id}>
+                                    <TableCell className="truncate">{zone.name}</TableCell>
+                                  <TableCell>{zone.status}</TableCell>
+                                  <TableCell>{zone.plan_name || "—"}</TableCell>
                                 <TableCell>
                                     <div className="flex items-center gap-2">
                                       <Button variant="ghost" size="sm" onClick={() => openZone(zone.id)}>
@@ -1892,6 +1953,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                             ))}
                           </TableBody>
                         </Table>
+                        </div>
                       </div>
                     )}
                   </div>

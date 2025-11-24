@@ -652,8 +652,22 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
     event.preventDefault();
     setRecordMessage(null);
 
+    // Trim all string fields
+    const trimmedForm = {
+      ...recordForm,
+      name: recordForm.name.trim(),
+      content: recordForm.content.trim(),
+      comment: recordForm.comment.trim(),
+      tags: recordForm.tags.trim(),
+      certCertificate: recordForm.certCertificate.trim(),
+      caaValue: recordForm.caaValue.trim(),
+      dnskeyPublicKey: recordForm.dnskeyPublicKey.trim(),
+      smimeaCertificate: recordForm.smimeaCertificate.trim(),
+      sshfpFingerprint: recordForm.sshfpFingerprint.trim(),
+    };
+
     // Validate content based on record type
-    const contentValidation = validateRecordContent(recordForm.type, recordForm.content, recordForm);
+    const contentValidation = validateRecordContent(trimmedForm.type, trimmedForm.content, trimmedForm);
     if (!contentValidation.valid) {
       toast.error(contentValidation.error || "Invalid content for this record type");
       return;
@@ -663,57 +677,57 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
     try {
       // Build the record payload
       const recordPayload: any = {
-        type: recordForm.type,
-        name: recordForm.name,
-        ttl: Number(recordForm.ttl) || undefined,
-        proxied: Boolean(recordForm.proxied),
-        comment: recordForm.comment || undefined,
-        tags: recordForm.tags || undefined,
+        type: trimmedForm.type,
+        name: trimmedForm.name,
+        ttl: Number(trimmedForm.ttl) || undefined,
+        proxied: Boolean(trimmedForm.proxied),
+        comment: trimmedForm.comment || undefined,
+        tags: trimmedForm.tags || undefined,
       };
 
       // For CERT records, use structured data format
-      if (recordForm.type === 'CERT') {
+      if (trimmedForm.type === 'CERT') {
         recordPayload.data = {
-          type: Number(recordForm.certType),
-          key_tag: Number(recordForm.certKeyTag),
-          algorithm: Number(recordForm.certAlgorithm),
-          certificate: recordForm.certCertificate.replace(/\s/g, ''), // Remove all whitespace
+          type: Number(trimmedForm.certType),
+          key_tag: Number(trimmedForm.certKeyTag),
+          algorithm: Number(trimmedForm.certAlgorithm),
+          certificate: trimmedForm.certCertificate.replace(/\s/g, ''), // Remove all whitespace
         };
-      } else if (recordForm.type === 'CAA') {
+      } else if (trimmedForm.type === 'CAA') {
         // For CAA records, use structured data format
         recordPayload.data = {
-          flags: Number(recordForm.caaFlags),
-          tag: recordForm.caaTag,
-          value: recordForm.caaValue,
+          flags: Number(trimmedForm.caaFlags),
+          tag: trimmedForm.caaTag,
+          value: trimmedForm.caaValue,
         };
-      } else if (recordForm.type === 'DNSKEY') {
+      } else if (trimmedForm.type === 'DNSKEY') {
         // For DNSKEY records, use structured data format
         recordPayload.data = {
-          flags: Number(recordForm.dnskeyFlags),
-          protocol: Number(recordForm.dnskeyProtocol),
-          algorithm: Number(recordForm.dnskeyAlgorithm),
-          public_key: recordForm.dnskeyPublicKey.replace(/\s/g, ''), // Remove all whitespace
+          flags: Number(trimmedForm.dnskeyFlags),
+          protocol: Number(trimmedForm.dnskeyProtocol),
+          algorithm: Number(trimmedForm.dnskeyAlgorithm),
+          public_key: trimmedForm.dnskeyPublicKey.replace(/\s/g, ''), // Remove all whitespace
         };
-      } else if (recordForm.type === 'SMIMEA') {
+      } else if (trimmedForm.type === 'SMIMEA') {
         // For SMIMEA records, use structured data format
         recordPayload.data = {
-          usage: Number(recordForm.smimeaUsage),
-          selector: Number(recordForm.smimeaSelector),
-          matching_type: Number(recordForm.smimeaMatchingType),
-          certificate: recordForm.smimeaCertificate.replace(/\s/g, ''), // Remove all whitespace
+          usage: Number(trimmedForm.smimeaUsage),
+          selector: Number(trimmedForm.smimeaSelector),
+          matching_type: Number(trimmedForm.smimeaMatchingType),
+          certificate: trimmedForm.smimeaCertificate.replace(/\s/g, ''), // Remove all whitespace
         };
-      } else if (recordForm.type === 'SSHFP') {
+      } else if (trimmedForm.type === 'SSHFP') {
         // For SSHFP records, use structured data format
         recordPayload.data = {
-          algorithm: Number(recordForm.sshfpAlgorithm),
-          type: Number(recordForm.sshfpFptype),
-          fingerprint: recordForm.sshfpFingerprint.replace(/\s/g, ''), // Remove all whitespace
+          algorithm: Number(trimmedForm.sshfpAlgorithm),
+          type: Number(trimmedForm.sshfpFptype),
+          fingerprint: trimmedForm.sshfpFingerprint.replace(/\s/g, ''), // Remove all whitespace
         };
       } else {
         // For other records, use simple content field
-        recordPayload.content = recordForm.content;
-        if (recordForm.priority) {
-          recordPayload.priority = Number(recordForm.priority);
+        recordPayload.content = trimmedForm.content;
+        if (trimmedForm.priority) {
+          recordPayload.priority = Number(trimmedForm.priority);
         }
       }
 
@@ -883,8 +897,22 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
     if (editingRecordId === null) return;
     setRecordMessage(null);
 
+    // Trim all string fields
+    const trimmedForm = {
+      ...editForm,
+      name: editForm.name.trim(),
+      content: editForm.content.trim(),
+      comment: editForm.comment.trim(),
+      tags: editForm.tags.trim(),
+      certCertificate: editForm.certCertificate.trim(),
+      caaValue: editForm.caaValue.trim(),
+      dnskeyPublicKey: editForm.dnskeyPublicKey.trim(),
+      smimeaCertificate: editForm.smimeaCertificate.trim(),
+      sshfpFingerprint: editForm.sshfpFingerprint.trim(),
+    };
+
     // Validate content based on record type
-    const contentValidation = validateRecordContent(editForm.type, editForm.content, editForm);
+    const contentValidation = validateRecordContent(trimmedForm.type, trimmedForm.content, trimmedForm);
     if (!contentValidation.valid) {
       toast.error(contentValidation.error || "Invalid content for this record type");
       return;
@@ -894,57 +922,57 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
     try {
       // Build the record payload
       const recordPayload: any = {
-        type: editForm.type,
-        name: editForm.name,
-        ttl: Number(editForm.ttl) || undefined,
-        proxied: Boolean(editForm.proxied),
-        comment: editForm.comment || undefined,
-        tags: editForm.tags || undefined,
+        type: trimmedForm.type,
+        name: trimmedForm.name,
+        ttl: Number(trimmedForm.ttl) || undefined,
+        proxied: Boolean(trimmedForm.proxied),
+        comment: trimmedForm.comment || undefined,
+        tags: trimmedForm.tags || undefined,
       };
 
       // For CERT records, use structured data format
-      if (editForm.type === 'CERT') {
+      if (trimmedForm.type === 'CERT') {
         recordPayload.data = {
-          type: Number(editForm.certType),
-          key_tag: Number(editForm.certKeyTag),
-          algorithm: Number(editForm.certAlgorithm),
-          certificate: editForm.certCertificate.replace(/\s/g, ''), // Remove all whitespace
+          type: Number(trimmedForm.certType),
+          key_tag: Number(trimmedForm.certKeyTag),
+          algorithm: Number(trimmedForm.certAlgorithm),
+          certificate: trimmedForm.certCertificate.replace(/\s/g, ''), // Remove all whitespace
         };
-      } else if (editForm.type === 'CAA') {
+      } else if (trimmedForm.type === 'CAA') {
         // For CAA records, use structured data format
         recordPayload.data = {
-          flags: Number(editForm.caaFlags),
-          tag: editForm.caaTag,
-          value: editForm.caaValue,
+          flags: Number(trimmedForm.caaFlags),
+          tag: trimmedForm.caaTag,
+          value: trimmedForm.caaValue,
         };
-      } else if (editForm.type === 'DNSKEY') {
+      } else if (trimmedForm.type === 'DNSKEY') {
         // For DNSKEY records, use structured data format
         recordPayload.data = {
-          flags: Number(editForm.dnskeyFlags),
-          protocol: Number(editForm.dnskeyProtocol),
-          algorithm: Number(editForm.dnskeyAlgorithm),
-          public_key: editForm.dnskeyPublicKey.replace(/\s/g, ''), // Remove all whitespace
+          flags: Number(trimmedForm.dnskeyFlags),
+          protocol: Number(trimmedForm.dnskeyProtocol),
+          algorithm: Number(trimmedForm.dnskeyAlgorithm),
+          public_key: trimmedForm.dnskeyPublicKey.replace(/\s/g, ''), // Remove all whitespace
         };
-      } else if (editForm.type === 'SMIMEA') {
+      } else if (trimmedForm.type === 'SMIMEA') {
         // For SMIMEA records, use structured data format
         recordPayload.data = {
-          usage: Number(editForm.smimeaUsage),
-          selector: Number(editForm.smimeaSelector),
-          matching_type: Number(editForm.smimeaMatchingType),
-          certificate: editForm.smimeaCertificate.replace(/\s/g, ''), // Remove all whitespace
+          usage: Number(trimmedForm.smimeaUsage),
+          selector: Number(trimmedForm.smimeaSelector),
+          matching_type: Number(trimmedForm.smimeaMatchingType),
+          certificate: trimmedForm.smimeaCertificate.replace(/\s/g, ''), // Remove all whitespace
         };
-      } else if (editForm.type === 'SSHFP') {
+      } else if (trimmedForm.type === 'SSHFP') {
         // For SSHFP records, use structured data format
         recordPayload.data = {
-          algorithm: Number(editForm.sshfpAlgorithm),
-          type: Number(editForm.sshfpFptype),
-          fingerprint: editForm.sshfpFingerprint.replace(/\s/g, ''), // Remove all whitespace
+          algorithm: Number(trimmedForm.sshfpAlgorithm),
+          type: Number(trimmedForm.sshfpFptype),
+          fingerprint: trimmedForm.sshfpFingerprint.replace(/\s/g, ''), // Remove all whitespace
         };
       } else {
         // For other records, use simple content field
-        recordPayload.content = editForm.content;
-        if (editForm.priority) {
-          recordPayload.priority = Number(editForm.priority);
+        recordPayload.content = trimmedForm.content;
+        if (trimmedForm.priority) {
+          recordPayload.priority = Number(trimmedForm.priority);
         }
       }
 

@@ -224,6 +224,7 @@ export function ApiTokensPage({ onLogout, user }: { onLogout: () => void; user: 
           </Table>
         </CardContent>
       </Card>
+      </main>
 
       {/* Create Token Modal */}
       {showCreateModal && (
@@ -339,7 +340,6 @@ export function ApiTokensPage({ onLogout, user }: { onLogout: () => void; user: 
           </Card>
         </div>
       )}
-      </main>
     </div>
   );
 }
