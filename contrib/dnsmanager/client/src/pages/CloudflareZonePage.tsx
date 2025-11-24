@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -1429,7 +1429,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
               <Label htmlFor="record-search">Search records</Label>
               <Input
                 id="record-search"
-                placeholder="Filter by name, content, type, tags, or comment"
+                placeholder="Filter records"
                 value={recordSearch}
                 onChange={(e) => setRecordSearch(e.target.value)}
               />
@@ -1568,7 +1568,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                         onChange={(e) => handleRecordFormChange("certCertificate", e.target.value)}
                         className="mt-1 font-mono text-xs"
                         rows={6}
-                        placeholder="Base64 encoded certificate data (A-Z, a-z, 0-9, +, /, =)"
+                        placeholder="Base64 certificate data"
                         required
                       />
                       <p className="mt-1 text-xs text-gray-500">Only valid base64 characters allowed. Whitespace will be removed.</p>
@@ -1615,7 +1615,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                         value={recordForm.caaValue}
                         onChange={(e) => handleRecordFormChange("caaValue", e.target.value)}
                         className="mt-1"
-                        placeholder="e.g., letsencrypt.org or mailto:admin@example.com"
+                        placeholder="e.g., letsencrypt.org"
                         required
                       />
                       <p className="mt-1 text-xs text-gray-500">CA domain or iodef URL</p>
@@ -1689,7 +1689,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                         onChange={(e) => handleRecordFormChange("dnskeyPublicKey", e.target.value)}
                         className="mt-1 font-mono text-xs"
                         rows={6}
-                        placeholder="Base64 encoded public key data (A-Z, a-z, 0-9, +, /, =)"
+                        placeholder="Base64 public key"
                         required
                       />
                       <p className="mt-1 text-xs text-gray-500">Only valid base64 characters allowed. Whitespace will be removed.</p>
@@ -1753,7 +1753,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                         onChange={(e) => handleRecordFormChange("smimeaCertificate", e.target.value)}
                         className="mt-1 font-mono text-xs"
                         rows={6}
-                        placeholder="Base64 or hexadecimal encoded certificate data (A-Z, a-z, 0-9, +, /, =)"
+                        placeholder="Base64 or hex certificate"
                         required
                       />
                       <p className="mt-1 text-xs text-gray-500">Only valid base64/hex characters allowed. Whitespace will be removed.</p>
@@ -1855,7 +1855,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                         value={recordForm.comment}
                         onChange={(e) => handleRecordFormChange("comment", e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-                        placeholder="Enter your comment here (up to 500 characters)."
+                        placeholder="Add comment"
                         maxLength={500}
                         className="mt-1"
                       />
@@ -1865,7 +1865,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                       <TagInput
                         value={recordForm.tags}
                         onChange={(value) => handleRecordFormChange("tags", value)}
-                        placeholder="Add tags (press Enter or comma to add)"
+                        placeholder="Add tags"
                         className="mt-1"
                       />
                     </div>
@@ -1933,8 +1933,8 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                     const recordTags = record.tags ? record.tags.split(",").filter(t => t.trim()) : [];
 
                     return (
-                      <>
-                        <TableRow key={record.id} className={isEditing ? "bg-gray-50" : ""}>
+                      <React.Fragment key={record.id}>
+                        <TableRow className={isEditing ? "bg-gray-50" : ""}>
                           <TableCell className="font-semibold">{record.record_type}</TableCell>
                           <TableCell className="font-mono text-sm">{record.name || "@"}</TableCell>
                           <TableCell className="max-w-[300px] truncate text-sm">
@@ -2105,7 +2105,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                                         onChange={(e) => handleEditFormChange("certCertificate", e.target.value)}
                                         className="mt-1 font-mono text-xs"
                                         rows={6}
-                                        placeholder="Base64 encoded certificate data (A-Z, a-z, 0-9, +, /, =)"
+                                        placeholder="Base64 certificate data"
                                         required
                                       />
                                       <p className="mt-1 text-xs text-gray-500">Only valid base64 characters allowed. Whitespace will be removed.</p>
@@ -2152,7 +2152,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                                         value={editForm.caaValue}
                                         onChange={(e) => handleEditFormChange("caaValue", e.target.value)}
                                         className="mt-1"
-                                        placeholder="e.g., letsencrypt.org or mailto:admin@example.com"
+                                        placeholder="e.g., letsencrypt.org"
                                         required
                                       />
                                       <p className="mt-1 text-xs text-gray-500">CA domain or iodef URL</p>
@@ -2226,7 +2226,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                                         onChange={(e) => handleEditFormChange("dnskeyPublicKey", e.target.value)}
                                         className="mt-1 font-mono text-xs"
                                         rows={6}
-                                        placeholder="Base64 encoded public key data (A-Z, a-z, 0-9, +, /, =)"
+                                        placeholder="Base64 public key"
                                         required
                                       />
                                       <p className="mt-1 text-xs text-gray-500">Only valid base64 characters allowed. Whitespace will be removed.</p>
@@ -2290,7 +2290,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                                         onChange={(e) => handleEditFormChange("smimeaCertificate", e.target.value)}
                                         className="mt-1 font-mono text-xs"
                                         rows={6}
-                                        placeholder="Base64 or hexadecimal encoded certificate data (A-Z, a-z, 0-9, +, /, =)"
+                                        placeholder="Base64 or hex certificate"
                                         required
                                       />
                                       <p className="mt-1 text-xs text-gray-500">Only valid base64/hex characters allowed. Whitespace will be removed.</p>
@@ -2392,7 +2392,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                                         value={editForm.comment}
                                         onChange={(e) => handleEditFormChange("comment", e.target.value)}
                                         onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-                                        placeholder="Enter your comment here (up to 500 characters)."
+                                        placeholder="Add comment"
                                         maxLength={500}
                                         className="mt-1"
                                       />
@@ -2402,7 +2402,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                                       <TagInput
                                         value={editForm.tags}
                                         onChange={(value) => handleEditFormChange("tags", value)}
-                                        placeholder="Add tags (press Enter or comma to add)"
+                                        placeholder="Add tags"
                                         className="mt-1"
                                       />
                                     </div>
@@ -2436,7 +2436,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
                             </TableCell>
                           </TableRow>
                         )}
-                      </>
+                      </React.Fragment>
                     );
                   })}
                 </TableBody>

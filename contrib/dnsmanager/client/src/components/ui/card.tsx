@@ -1,40 +1,47 @@
+// THIS IS NOW A WRAPPER AROUND RADIX THEMES CARD
+import { Card as RadixCard, Heading, Text, Box } from "@radix-ui/themes";
 import * as React from "react";
-import { cn } from "../../lib/utils";
 
-const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn("rounded-lg border bg-white text-foreground shadow-sm", className)}
-      {...props}
-    />
+const Card = React.forwardRef<HTMLDivElement, React.ComponentProps<typeof RadixCard>>(
+  (props, ref) => (
+    <RadixCard ref={ref} size="3" {...props} />
   ),
 );
 Card.displayName = "Card";
 
 const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("border-b px-6 py-4", className)} {...props} />
+  ({ children, ...props }, ref) => (
+    <Box ref={ref} p="4" style={{ borderBottom: "1px solid var(--gray-a5)" }} {...props}>
+      {children}
+    </Box>
   ),
 );
 CardHeader.displayName = "CardHeader";
 
-const CardTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLHeadingElement>>(
-  ({ className, ...props }, ref) => (
-    <h3 ref={ref} className={cn("text-lg font-semibold leading-none tracking-tight", className)} {...props} />
+const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
+  ({ children, ...props }, ref) => (
+    <Heading as="h3" size="5" mb="1" {...props}>
+      {children}
+    </Heading>
   ),
 );
 CardTitle.displayName = "CardTitle";
 
 const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
-  ({ className, ...props }, ref) => (
-    <p ref={ref} className={cn("text-sm text-muted-foreground", className)} {...props} />
+  ({ children, ...props }, ref) => (
+    <Text as="p" size="2" color="gray" {...props}>
+      {children}
+    </Text>
   ),
 );
 CardDescription.displayName = "CardDescription";
 
 const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => <div ref={ref} className={cn("px-6 py-4", className)} {...props} />,
+  ({ children, ...props }, ref) => (
+    <Box ref={ref} p="4" {...props}>
+      {children}
+    </Box>
+  ),
 );
 CardContent.displayName = "CardContent";
 

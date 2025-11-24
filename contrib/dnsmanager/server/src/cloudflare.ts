@@ -252,8 +252,19 @@ export async function syncZone(localZoneId: number, mode: SyncMode = "pull-clean
 
     // Handle load balancers (always replace)
     await conn.execute("DELETE FROM cloudflare_load_balancers WHERE zone_id = ?", [localZoneId]);
+
+    // Get the account_id for fetching pool details
+    const [zoneAccountRows] = await conn.query<{ cf_account_id: string }>(
+      `SELECT a.cf_account_id
+       FROM cloudflare_zones z
+       JOIN cloudflare_accounts a ON a.id = z.account_id
+       WHERE z.id = ?`,
+      [localZoneId]
+    );
+    const cfAccountId = zoneAccountRows[0]?.cf_account_id;
+
     for (const lb of lbs) {
-      await conn.execute(
+      const [lbResult] = await conn.execute(
         `INSERT INTO cloudflare_load_balancers
           (zone_id, cf_lb_id, name, proxied, enabled, fallback_pool, default_pools, steering_policy, data)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -269,6 +280,78 @@ export async function syncZone(localZoneId: number, mode: SyncMode = "pull-clean
           JSON.stringify(lb),
         ],
       );
+
+      const lbId = (lbResult as any).insertId;
+
+      // Sync pools for this load balancer
+      if (cfAccountId && lb.default_pools && Array.isArray(lb.default_pools)) {
+        for (const cfPoolId of lb.default_pools) {
+          try {
+            const poolResponse = await cloudflareGetPool(cfAccountId, cfPoolId);
+            const pool = poolResponse.result;
+
+            if (!pool) continue;
+
+            // Insert pool
+            const [poolResult] = await conn.execute(
+              `INSERT INTO cloudflare_lb_pools
+                (lb_id, cf_pool_id, name, description, enabled, minimum_origins, monitor,
+                 notification_email, notification_enabled, notification_health_status,
+                 health_check_regions, latitude, longitude, load_shedding_default_percent,
+                 load_shedding_default_policy, load_shedding_session_percent,
+                 load_shedding_session_policy, origin_steering_policy)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                lbId,
+                cfPoolId,
+                pool.name ?? '',
+                pool.description ?? null,
+                typeof pool.enabled === "boolean" ? (pool.enabled ? 1 : 0) : 1,
+                pool.minimum_origins ?? 1,
+                pool.monitor ?? null,
+                pool.notification_email ?? null,
+                pool.notification_email ? 1 : 0,
+                pool.notification_health_status || 'either',
+                pool.check_regions ? JSON.stringify(pool.check_regions) : null,
+                pool.latitude ?? null,
+                pool.longitude ?? null,
+                pool.load_shedding?.default_percent ?? 0,
+                pool.load_shedding?.default_policy ?? 'random',
+                pool.load_shedding?.session_percent ?? 0,
+                pool.load_shedding?.session_policy ?? 'hash',
+                pool.origin_steering?.policy ?? 'random',
+              ],
+            );
+
+            const poolId = (poolResult as any).insertId;
+
+            // Insert origins for this pool
+            if (pool.origins && Array.isArray(pool.origins)) {
+              for (const origin of pool.origins) {
+                await conn.execute(
+                  `INSERT INTO cloudflare_lb_pool_origins
+                    (pool_id, name, address, enabled, weight, port, header_host, header_origin, virtual_network_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  [
+                    poolId,
+                    origin.name ?? '',
+                    origin.address ?? '',
+                    typeof origin.enabled === "boolean" ? (origin.enabled ? 1 : 0) : 1,
+                    origin.weight ?? 1,
+                    origin.port ?? null,
+                    origin.header?.Host?.[0] ?? null,
+                    origin.header?.Origin?.[0] ?? null,
+                    origin.virtual_network_id ?? null,
+                  ],
+                );
+              }
+            }
+          } catch (error) {
+            console.error(`Failed to sync pool ${cfPoolId}:`, error);
+            // Continue with other pools even if one fails
+          }
+        }
+      }
     }
   });
 
@@ -318,6 +401,10 @@ export async function cloudflareGetPoolHealth(cfAccountId: string, cfPoolId: str
 
 export async function cloudflareListPools(cfAccountId: string) {
   return cfRequest("GET", `/accounts/${cfAccountId}/load_balancers/pools`);
+}
+
+export async function cloudflareGetPool(cfAccountId: string, cfPoolId: string) {
+  return cfRequest("GET", `/accounts/${cfAccountId}/load_balancers/pools/${cfPoolId}`);
 }
 
 /**

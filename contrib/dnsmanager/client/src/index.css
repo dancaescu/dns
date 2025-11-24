@@ -2,8 +2,96 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background-color: hsl(0 0% 100%);
-  color: hsl(222.2 84% 4.9%);
+@layer base {
+  :root {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+    /* Modern Radix Design System */
+    --color-background: 240 10% 97%;
+    --color-foreground: 240 10% 10%;
+
+    /* Primary - Vibrant Violet */
+    --color-primary: 263 85% 62%;
+    --color-primary-foreground: 0 0% 100%;
+
+    /* Secondary - Soft Blue-Gray */
+    --color-secondary: 217 33% 92%;
+    --color-secondary-foreground: 217 33% 17%;
+
+    /* Muted - Ultra Light */
+    --color-muted: 240 10% 96%;
+    --color-muted-foreground: 240 4% 46%;
+
+    /* Accent - Violet Wash */
+    --color-accent: 263 40% 95%;
+    --color-accent-foreground: 263 85% 35%;
+
+    /* Borders - Subtle */
+    --color-border: 240 10% 88%;
+    --color-input: 240 10% 88%;
+    --color-ring: 263 85% 62%;
+
+    /* Destructive */
+    --color-destructive: 0 72% 51%;
+    --color-destructive-foreground: 0 0% 100%;
+
+    /* Card - Elevated */
+    --color-card: 0 0% 100%;
+    --color-card-foreground: 240 10% 10%;
+
+    /* Success */
+    --color-success: 142 76% 36%;
+    --color-success-foreground: 0 0% 100%;
+
+    /* Warning */
+    --color-warning: 38 92% 50%;
+    --color-warning-foreground: 0 0% 100%;
+
+    /* Radius - Much rounder */
+    --radius-sm: 0.5rem;
+    --radius-md: 0.75rem;
+    --radius-lg: 1rem;
+    --radius-xl: 1.25rem;
+    --radius-full: 9999px;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  /* Enhanced elevation system */
+  .elevation-1 {
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+
+  .elevation-2 {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+  }
+
+  .elevation-3 {
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.03);
+  }
+
+  .elevation-4 {
+    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.09), 0 8px 10px -6px rgb(0 0 0 / 0.04);
+  }
+
+  /* Glass morphism effect */
+  .glass {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
 }

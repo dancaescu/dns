@@ -5,30 +5,34 @@ export default {
   theme: {
     extend: {
       colors: {
-        border: "hsl(214 32% 91%)",
-        input: "hsl(214 30% 95%)",
-        ring: "hsl(222 84% 5%)",
-        background: "hsl(0 0% 100%)",
-        foreground: "hsl(222.2 84% 4.9%)",
+        border: "hsl(var(--color-border) / <alpha-value>)",
+        input: "hsl(var(--color-input) / <alpha-value>)",
+        ring: "hsl(var(--color-ring) / <alpha-value>)",
+        background: "hsl(var(--color-background) / <alpha-value>)",
+        foreground: "hsl(var(--color-foreground) / <alpha-value>)",
         primary: {
-          DEFAULT: "hsl(221.2 83.2% 53.3%)",
-          foreground: "hsl(210 40% 98%)"
+          DEFAULT: "hsl(var(--color-primary) / <alpha-value>)",
+          foreground: "hsl(var(--color-primary-foreground) / <alpha-value>)"
         },
         secondary: {
-          DEFAULT: "hsl(210 40% 96.1%)",
-          foreground: "hsl(222.2 47.4% 11.2%)"
+          DEFAULT: "hsl(var(--color-secondary) / <alpha-value>)",
+          foreground: "hsl(var(--color-secondary-foreground) / <alpha-value>)"
         },
         muted: {
-          DEFAULT: "hsl(210 40% 96.1%)",
-          foreground: "hsl(215.4 16.3% 46.9%)"
+          DEFAULT: "hsl(var(--color-muted) / <alpha-value>)",
+          foreground: "hsl(var(--color-muted-foreground) / <alpha-value>)"
         },
         accent: {
-          DEFAULT: "hsl(210 40% 96.1%)",
-          foreground: "hsl(222.2 47.4% 11.2%)"
+          DEFAULT: "hsl(var(--color-accent) / <alpha-value>)",
+          foreground: "hsl(var(--color-accent-foreground) / <alpha-value>)"
         },
         destructive: {
-          DEFAULT: "hsl(0 84.2% 60.2%)",
-          foreground: "hsl(210 40% 98%)"
+          DEFAULT: "hsl(var(--color-destructive) / <alpha-value>)",
+          foreground: "hsl(var(--color-destructive-foreground) / <alpha-value>)"
+        },
+        card: {
+          DEFAULT: "hsl(var(--color-card) / <alpha-value>)",
+          foreground: "hsl(var(--color-card-foreground) / <alpha-value>)"
         }
       },
       borderRadius: {

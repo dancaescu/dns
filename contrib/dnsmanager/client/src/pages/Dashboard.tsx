@@ -286,6 +286,11 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
     records_failed: number;
   } | null>(null);
 
+  // Zone deletion modal
+  const [zoneDeleteModalOpen, setZoneDeleteModalOpen] = useState(false);
+  const [zoneToDelete, setZoneToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [zoneDeleteConfirm, setZoneDeleteConfirm] = useState("");
+
   // Copy from Cloudflare to MyDNS modal
   const [showCopyToMyDnsModal, setShowCopyToMyDnsModal] = useState(false);
   const [zoneToImport, setZoneToImport] = useState<CloudflareZone | null>(null);
@@ -745,6 +750,34 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
       toast.error(error.message || "Failed to copy zone to MyDNS");
     } finally {
       setCopyingToMyDns(false);
+    }
+  }
+
+  function openDeleteZoneModal(zone: CloudflareZone) {
+    setZoneToDelete({ id: zone.id, name: zone.name });
+    setZoneDeleteConfirm("");
+    setZoneDeleteModalOpen(true);
+  }
+
+  async function handleDeleteZone() {
+    if (!zoneToDelete) return;
+    if (zoneDeleteConfirm !== zoneToDelete.name) {
+      toast.error("Zone name does not match");
+      return;
+    }
+
+    try {
+      await apiRequest(`/cloudflare/zones/${zoneToDelete.id}`, {
+        method: "DELETE",
+      });
+      toast.success(`Zone "${zoneToDelete.name}" deleted successfully`);
+      setZoneDeleteModalOpen(false);
+      setZoneToDelete(null);
+      setZoneDeleteConfirm("");
+      await loadZones();
+    } catch (error: any) {
+      console.error("Failed to delete zone:", error);
+      toast.error(error.message || "Failed to delete zone");
     }
   }
 
@@ -1786,11 +1819,11 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         onChange={(e) => setZoneSearch(e.target.value)}
                       />
                     </div>
-                    <div className="flex items-end gap-2">
-                      <Button variant="ghost" onClick={() => { setAccountSearch(""); setZoneSearch(""); }}>
+                    <div className="flex items-center gap-2">
+                      <Button variant="ghost" onClick={() => { setAccountSearch(""); setZoneSearch(""); }} type="button">
                         Clear filters
                       </Button>
-                      <Button variant="default" onClick={() => setShowAddZoneModal(true)}>
+                      <Button variant="default" onClick={() => setShowAddZoneModal(true)} type="button">
                         Add Zone
                       </Button>
                     </div>
@@ -1845,6 +1878,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                       <div className="flex justify-end gap-2 pt-4">
                         <Button
                           variant="ghost"
+                          type="button"
                           onClick={() => {
                             setShowAddZoneModal(false);
                             setNewZoneAccountId(null);
@@ -1854,7 +1888,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         >
                           Cancel
                         </Button>
-                        <Button onClick={handleCreateZone} disabled={isAddingCfZone}>
+                        <Button type="button" onClick={handleCreateZone} disabled={isAddingCfZone}>
                           {isAddingCfZone ? "Creating..." : "Create Zone"}
                         </Button>
                       </div>
@@ -1881,6 +1915,14 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                           </Button>
                           <Button variant="ghost" size="sm" onClick={() => toggleFavorite(zone)}>
                             <Star className="h-4 w-4 fill-yellow-400 text-yellow-500" />
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => openDeleteZoneModal(zone)}
+                            title="Delete zone"
+                          >
+                            Delete
                           </Button>
                         </div>
                       </div>
@@ -1946,6 +1988,14 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                                             zone.favorite ? "fill-yellow-400 text-yellow-500" : "text-muted-foreground",
                                           )}
                                         />
+                                      </Button>
+                                      <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        onClick={() => openDeleteZoneModal(zone)}
+                                        title="Delete zone"
+                                      >
+                                        Delete
                                       </Button>
                                     </div>
                                   </TableCell>
@@ -2210,6 +2260,58 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                   }}
                 >
                   Done
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Delete Zone Confirmation Modal */}
+      {zoneDeleteModalOpen && zoneToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>Delete Zone</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded p-3">
+                <p className="text-sm text-red-800 font-semibold">Warning: This action cannot be undone!</p>
+                <p className="text-sm text-red-800 mt-2">
+                  This will permanently delete the zone "{zoneToDelete.name}" and all its associated records, load balancers, pools, and origins from the local database.
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="zone-delete-confirm">Type the zone name to confirm:</Label>
+                <Input
+                  id="zone-delete-confirm"
+                  value={zoneDeleteConfirm}
+                  onChange={(e) => setZoneDeleteConfirm(e.target.value)}
+                  placeholder={zoneToDelete.name}
+                  className="mt-1"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => {
+                    setZoneDeleteModalOpen(false);
+                    setZoneToDelete(null);
+                    setZoneDeleteConfirm("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  type="button"
+                  onClick={handleDeleteZone}
+                  disabled={zoneDeleteConfirm !== zoneToDelete.name}
+                >
+                  Delete Zone
                 </Button>
               </div>
             </CardContent>

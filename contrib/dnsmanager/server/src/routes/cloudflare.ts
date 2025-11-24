@@ -692,6 +692,48 @@ router.post("/zones/:id/favorite", async (req, res) => {
   res.json({ success: true });
 });
 
+router.delete("/zones/:id", async (req: any, res) => {
+  const zoneId = Number(req.params.id);
+  if (!Number.isInteger(zoneId)) {
+    return res.status(400).json({ message: "Invalid zone id" });
+  }
+  const ipAddress = req.socket.remoteAddress || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+
+  try {
+    // Get zone details for logging
+    const [zones] = await query<{ id: number; cf_zone_id: string | null; name: string }>(
+      "SELECT id, cf_zone_id, name FROM cloudflare_zones WHERE id = ?",
+      [zoneId]
+    );
+    if (!zones.length) {
+      return res.status(404).json({ message: "Zone not found" });
+    }
+    const zone = zones[0];
+
+    // Delete all records, load balancers, pools, and origins associated with this zone
+    await execute("DELETE FROM cloudflare_lb_pool_origins WHERE pool_id IN (SELECT id FROM cloudflare_lb_pools WHERE zone_id = ?)", [zoneId]);
+    await execute("DELETE FROM cloudflare_lb_pools WHERE zone_id = ?", [zoneId]);
+    await execute("DELETE FROM cloudflare_load_balancers WHERE zone_id = ?", [zoneId]);
+    await execute("DELETE FROM cloudflare_records WHERE zone_id = ?", [zoneId]);
+    await execute("DELETE FROM cloudflare_zones WHERE id = ?", [zoneId]);
+
+    await logAction(
+      req.user.id,
+      "cloudflare_zone_delete",
+      `Deleted Cloudflare zone ${zone.name} (ID: ${zoneId})`,
+      ipAddress,
+      userAgent,
+      "cloudflare_zone",
+      zoneId
+    );
+
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : "Failed to delete zone" });
+  }
+});
+
 // Load Balancer routes
 router.post("/zones/:id/load-balancers", async (req, res) => {
   const zoneId = Number(req.params.id);
