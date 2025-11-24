@@ -47,6 +47,10 @@ const createUserSchema = z.object({
   full_name: z.string().max(255).optional(),
   role: z.enum(["superadmin", "account_admin", "user"]),
   active: z.boolean().default(true),
+  require_2fa: z.boolean().default(false),
+  twofa_method: z.enum(["email", "sms", "none"]).default("none"),
+  twofa_contact: z.string().max(255).optional(),
+  managed_by: z.number().int().positive().nullable().optional(),
 });
 
 const updateUserSchema = z.object({
@@ -54,6 +58,14 @@ const updateUserSchema = z.object({
   full_name: z.string().max(255).optional(),
   role: z.enum(["superadmin", "account_admin", "user"]).optional(),
   active: z.boolean().optional(),
+  require_2fa: z.boolean().optional(),
+  twofa_method: z.enum(["email", "sms", "none"]).optional(),
+  twofa_contact: z.string().max(255).optional(),
+  managed_by: z.number().int().positive().nullable().optional(),
+});
+
+const resetPasswordSchema = z.object({
+  new_password: z.string().min(6),
 });
 
 const assignAccountSchema = z.object({
@@ -77,10 +89,12 @@ const grantPermissionSchema = z.object({
 router.get("/", requireSuperadmin, async (req: any, res) => {
   try {
     const [rows] = await query(
-      `SELECT id, username, email, full_name, role, active, require_2fa, twofa_method,
-              last_login, created_at
-       FROM dnsmanager_users
-       ORDER BY username`
+      `SELECT u.id, u.username, u.email, u.full_name, u.role, u.active, u.require_2fa, u.twofa_method,
+              u.twofa_contact, u.last_login, u.created_at, u.managed_by,
+              m.username as managed_by_username
+       FROM dnsmanager_users u
+       LEFT JOIN dnsmanager_users m ON u.managed_by = m.id
+       ORDER BY u.username`
     );
     res.json({ users: rows });
   } catch (error) {
@@ -200,8 +214,8 @@ router.post("/", async (req: any, res) => {
     // Create user
     const result = await execute(
       `INSERT INTO dnsmanager_users
-       (username, email, password_hash, full_name, role, active, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (username, email, password_hash, full_name, role, active, require_2fa, twofa_method, twofa_contact, managed_by, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         parsed.data.username,
         parsed.data.email,
@@ -209,6 +223,10 @@ router.post("/", async (req: any, res) => {
         parsed.data.full_name || null,
         parsed.data.role,
         parsed.data.active ? 1 : 0,
+        parsed.data.require_2fa ? 1 : 0,
+        parsed.data.twofa_method || 'none',
+        parsed.data.twofa_contact || null,
+        parsed.data.managed_by || null,
         req.session.userId,
       ]
     );
@@ -268,12 +286,26 @@ router.put("/:id", async (req: any, res) => {
     const setClause = fields.map((key) => `${key} = ?`).join(", ");
     const values: any[] = fields.map((key) => {
       const value = updates[key as keyof typeof updates];
-      if (key === "active") return value ? 1 : 0;
+      if (key === "active" || key === "require_2fa") return value ? 1 : 0;
       return value;
     });
     values.push(userId);
 
     await execute(`UPDATE dnsmanager_users SET ${setClause} WHERE id = ?`, values);
+
+    // If user is being deactivated, terminate all their sessions
+    if (updates.active === false) {
+      await execute(`DELETE FROM dnsmanager_sessions WHERE user_id = ?`, [userId]);
+      await logAction(
+        req.session.userId,
+        "user_update",
+        `Terminated all sessions for deactivated user ${userId}`,
+        ipAddress,
+        userAgent,
+        "user",
+        userId
+      );
+    }
 
     await logAction(
       req.session.userId,
@@ -334,6 +366,132 @@ router.delete("/:id", requireSuperadmin, async (req: any, res) => {
     res.status(204).send();
   } catch (error) {
     console.error("Delete user error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/users/:id/reset-password
+ * Reset user password (superadmin or account_admin can reset passwords)
+ */
+router.post("/:id/reset-password", async (req: any, res) => {
+  const userId = Number(req.params.id);
+  const parsed = resetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid request", issues: parsed.error.issues });
+  }
+
+  const ipAddress = req.socket.remoteAddress || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+
+  try {
+    // Only superadmin or account_admin can reset passwords
+    if (req.session.role !== "superadmin" && req.session.role !== "account_admin") {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    // Get username for logging
+    const [rows] = await query<{ username: string }>(
+      `SELECT username FROM dnsmanager_users WHERE id = ?`,
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const username = rows[0].username;
+
+    // Hash new password
+    const passwordHash = await hashPassword(parsed.data.new_password);
+
+    // Update password
+    await execute(
+      `UPDATE dnsmanager_users SET password_hash = ? WHERE id = ?`,
+      [passwordHash, userId]
+    );
+
+    // Terminate all sessions for security
+    await execute(`DELETE FROM dnsmanager_sessions WHERE user_id = ?`, [userId]);
+
+    await logAction(
+      req.session.userId,
+      "user_update",
+      `Reset password for user ${username} (ID: ${userId})`,
+      ipAddress,
+      userAgent,
+      "user",
+      userId
+    );
+
+    res.json({ success: true, message: "Password reset successfully. User sessions have been terminated." });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+/**
+ * GET /api/users/account-admins
+ * Get list of account admins (for assignment dropdown)
+ */
+router.get("/account-admins", requireAuth, async (req: any, res) => {
+  try {
+    // Superadmin can see all account_admins and superadmins
+    const [rows] = await query(
+      `SELECT id, username, email, full_name, role
+       FROM dnsmanager_users
+       WHERE (role = 'account_admin' OR role = 'superadmin') AND active = 1
+       ORDER BY username`
+    );
+    res.json({ admins: rows });
+  } catch (error) {
+    console.error("List account admins error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+/**
+ * DELETE /api/users/sessions/:sessionId
+ * Terminate a specific session (superadmin only)
+ */
+router.delete("/sessions/:sessionId", requireSuperadmin, async (req: any, res) => {
+  const sessionId = Number(req.params.sessionId);
+  const ipAddress = req.socket.remoteAddress || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+
+  try {
+    // Get session info before deleting
+    const [rows] = await query<{ user_id: number; username: string }>(
+      `SELECT s.user_id, u.username
+       FROM dnsmanager_sessions s
+       JOIN dnsmanager_users u ON s.user_id = u.id
+       WHERE s.id = ?`,
+      [sessionId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Session not found" });
+    }
+
+    const { user_id, username } = rows[0];
+
+    // Delete the session
+    await execute(`DELETE FROM dnsmanager_sessions WHERE id = ?`, [sessionId]);
+
+    await logAction(
+      req.session.userId,
+      "user_update",
+      `Terminated session ${sessionId} for user ${username} (ID: ${user_id})`,
+      ipAddress,
+      userAgent,
+      "user",
+      user_id
+    );
+
+    res.status(204).send();
+  } catch (error) {
+    console.error("Terminate session error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });

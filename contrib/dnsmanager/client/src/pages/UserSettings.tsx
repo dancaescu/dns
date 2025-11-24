@@ -63,6 +63,11 @@ export function UserSettings({ user, onLogout }: { user: any; onLogout: () => vo
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  // 2FA settings
+  const [require2FA, setRequire2FA] = useState(user?.require_2fa ? true : false);
+  const [twofaMethod, setTwofaMethod] = useState<"email" | "sms" | "none">(user?.twofa_method || "none");
+  const [twofaContact, setTwofaContact] = useState(user?.twofa_contact || "");
+
   useEffect(() => {
     loadTokens();
   }, []);
@@ -166,6 +171,28 @@ export function UserSettings({ user, onLogout }: { user: any; onLogout: () => vo
     }
   }
 
+  async function handleUpdate2FA() {
+    if (require2FA && twofaMethod !== "none" && !twofaContact) {
+      toast({ title: "Error", description: "Please provide a contact for 2FA", variant: "destructive" });
+      return;
+    }
+
+    try {
+      await apiRequest(`/users/${user.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          require_2fa: require2FA,
+          twofa_method: require2FA ? twofaMethod : "none",
+          twofa_contact: require2FA && twofaMethod !== "none" ? twofaContact : null,
+        }),
+      });
+      toast({ title: "Success", description: "2FA settings updated" });
+    } catch (error) {
+      console.error("Failed to update 2FA settings:", error);
+      toast({ title: "Error", description: "Failed to update 2FA settings", variant: "destructive" });
+    }
+  }
+
   function toggleScope(scope: string) {
     if (scope === "*") {
       setCreateForm({ ...createForm, scopes: createForm.scopes.includes("*") ? [] : ["*"] });
@@ -245,41 +272,98 @@ export function UserSettings({ user, onLogout }: { user: any; onLogout: () => vo
           </TabsContent>
 
           <TabsContent value="security">
-            <Card>
-              <CardHeader>
-                <CardTitle>Change Password</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="currentPassword">Current Password</Label>
-                  <Input
-                    id="currentPassword"
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="newPassword">New Password</Label>
-                  <Input
-                    id="newPassword"
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                  />
-                </div>
-                <Button onClick={handleChangePassword}>Change Password</Button>
-              </CardContent>
-            </Card>
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Change Password</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="currentPassword">Current Password</Label>
+                    <Input
+                      id="currentPassword"
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="newPassword">New Password</Label>
+                    <Input
+                      id="newPassword"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                    />
+                  </div>
+                  <Button onClick={handleChangePassword}>Change Password</Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Two-Factor Authentication</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="require-2fa"
+                      checked={require2FA}
+                      onChange={(e) => setRequire2FA(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <Label htmlFor="require-2fa" className="cursor-pointer">
+                      Require Two-Factor Authentication
+                    </Label>
+                  </div>
+
+                  {require2FA && (
+                    <>
+                      <div>
+                        <Label htmlFor="twofa-method">2FA Method</Label>
+                        <select
+                          id="twofa-method"
+                          value={twofaMethod}
+                          onChange={(e) => setTwofaMethod(e.target.value as "email" | "sms" | "none")}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="none">None</option>
+                          <option value="email">Email</option>
+                          <option value="sms">SMS</option>
+                        </select>
+                      </div>
+
+                      {twofaMethod !== "none" && (
+                        <div>
+                          <Label htmlFor="twofa-contact">
+                            {twofaMethod === "email" ? "Email Address" : "Phone Number"}
+                          </Label>
+                          <Input
+                            id="twofa-contact"
+                            type={twofaMethod === "email" ? "email" : "tel"}
+                            value={twofaContact}
+                            onChange={(e) => setTwofaContact(e.target.value)}
+                            placeholder={twofaMethod === "email" ? "your.email@example.com" : "+1234567890"}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <Button onClick={handleUpdate2FA}>Update 2FA Settings</Button>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="api-tokens">

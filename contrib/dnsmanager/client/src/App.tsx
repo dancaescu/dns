@@ -6,8 +6,6 @@ import { CloudflareZonePage } from "./pages/CloudflareZonePage";
 import { UserManagement } from "./pages/UserManagement";
 import { Settings } from "./pages/Settings";
 import ApiDocs from "./pages/ApiDocs";
-import { ZoneAssignments } from "./pages/ZoneAssignments";
-import { PermissionsManagement } from "./pages/PermissionsManagement";
 import { ApiTokensPage } from "./pages/ApiTokensPage";
 import { UserSettings } from "./pages/UserSettings";
 import { getToken, setToken, logout, apiRequest, onTokenChange } from "./lib/api";
@@ -104,22 +102,18 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Dashboard onLogout={handleLogout} user={user} />} />
-      <Route path="/cloudflare/zones/:zoneId" element={<CloudflareZonePage onLogout={handleLogout} />} />
-      <Route path="/api-docs" element={<ApiDocs />} />
-      <Route path="/api-tokens" element={<ApiTokensPage />} />
+      <Route path="/cloudflare/zones/:zoneId" element={<CloudflareZonePage onLogout={handleLogout} user={user} />} />
+      <Route path="/api-docs" element={<ApiDocs onLogout={handleLogout} user={user} />} />
+      <Route path="/api-tokens" element={<ApiTokensPage onLogout={handleLogout} user={user} />} />
       <Route path="/my-settings" element={<UserSettings user={user} onLogout={handleLogout} />} />
       {user?.role === "superadmin" && (
         <>
-          <Route path="/users" element={<UserManagement onLogout={handleLogout} />} />
-          <Route path="/settings" element={<Settings onLogout={handleLogout} />} />
-          <Route path="/zone-assignments" element={<ZoneAssignments />} />
+          <Route path="/users" element={<UserManagement onLogout={handleLogout} user={user} />} />
+          <Route path="/settings" element={<Settings onLogout={handleLogout} user={user} />} />
         </>
       )}
-      {(user?.role === "superadmin" || user?.role === "account_admin") && (
-        <>
-          <Route path="/users" element={<UserManagement onLogout={handleLogout} />} />
-          <Route path="/permissions" element={<PermissionsManagement />} />
-        </>
+      {user?.role === "account_admin" && (
+        <Route path="/users" element={<UserManagement onLogout={handleLogout} user={user} />} />
       )}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

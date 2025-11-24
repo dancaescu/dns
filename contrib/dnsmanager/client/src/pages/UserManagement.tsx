@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Checkbox } from "../components/ui/checkbox";
 import { apiRequest } from "../lib/api";
 import { toast, ToastContainer } from "../components/ui/toast";
+import { UnifiedHeader } from "../components/UnifiedHeader";
 
 interface User {
   id: number;
@@ -20,8 +21,19 @@ interface User {
   active: number;
   require_2fa: number;
   twofa_method: "email" | "sms" | "none";
+  twofa_contact: string | null;
+  managed_by: number | null;
+  managed_by_username: string | null;
   last_login: string | null;
   created_at: string;
+}
+
+interface AccountAdmin {
+  id: number;
+  username: string;
+  email: string;
+  full_name: string | null;
+  role: string;
 }
 
 interface UserUpdatePayload {
@@ -29,6 +41,10 @@ interface UserUpdatePayload {
   full_name?: string | null;
   role?: "superadmin" | "account_admin" | "user";
   active?: boolean;
+  require_2fa?: boolean;
+  twofa_method?: "email" | "sms" | "none";
+  twofa_contact?: string | null;
+  managed_by?: number | null;
 }
 
 interface Session {
@@ -95,7 +111,7 @@ interface ApiToken {
   can_use_api: boolean;
 }
 
-export function UserManagement({ onLogout }: { onLogout: () => void }) {
+export function UserManagement({ onLogout, user }: { onLogout: () => void; user: User | null }) {
   const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -109,7 +125,19 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
     full_name: "",
     role: "user" as "superadmin" | "account_admin" | "user",
     active: true,
+    require_2fa: false,
+    twofa_method: "none" as "email" | "sms" | "none",
+    twofa_contact: "",
+    managed_by: null as number | null,
   });
+
+  // Account admins list
+  const [accountAdmins, setAccountAdmins] = useState<AccountAdmin[]>([]);
+
+  // Password reset state
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [userToResetPassword, setUserToResetPassword] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState("");
 
   // Zone assignment state
   const [showZoneAssignModal, setShowZoneAssignModal] = useState(false);
@@ -177,6 +205,7 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
     loadSessions();
     loadLogs();
     loadDomains();
+    loadAccountAdmins();
   }, []);
 
   useEffect(() => {
@@ -243,6 +272,15 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
       setAllDomains(domains);
     } catch (error) {
       console.error("Failed to load domains:", error);
+    }
+  }
+
+  async function loadAccountAdmins() {
+    try {
+      const response = await apiRequest<{ admins: AccountAdmin[] }>("/users/account-admins");
+      setAccountAdmins(response.admins);
+    } catch (error) {
+      console.error("Failed to load account admins:", error);
     }
   }
 
@@ -326,6 +364,47 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
     } catch (error) {
       console.error("Failed to update user:", error);
       const message = error instanceof Error ? error.message : "Failed to update user";
+      toast.error(message);
+    }
+  }
+
+  async function handleResetPassword() {
+    if (!userToResetPassword || !newPassword) {
+      toast.error("Please enter a new password");
+      return;
+    }
+
+    try {
+      const response = await apiRequest<{ success: boolean; message: string }>(
+        `/users/${userToResetPassword.id}/reset-password`,
+        {
+          method: "POST",
+          body: JSON.stringify({ new_password: newPassword }),
+        }
+      );
+      setShowResetPasswordModal(false);
+      setUserToResetPassword(null);
+      setNewPassword("");
+      toast.success(response.message || "Password reset successfully");
+    } catch (error) {
+      console.error("Failed to reset password:", error);
+      const message = error instanceof Error ? error.message : "Failed to reset password";
+      toast.error(message);
+    }
+  }
+
+  async function handleTerminateSession(sessionId: number) {
+    if (!confirm("Are you sure you want to terminate this session?")) return;
+
+    try {
+      await apiRequest(`/users/sessions/${sessionId}`, {
+        method: "DELETE",
+      });
+      loadSessions();
+      toast.success("Session terminated successfully");
+    } catch (error) {
+      console.error("Failed to terminate session:", error);
+      const message = error instanceof Error ? error.message : "Failed to terminate session";
       toast.error(message);
     }
   }
@@ -437,9 +516,12 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
       const assignedMap = new Map<string, ZoneAssignment>();
       const accountsMap = new Map<number, any>();
 
+      console.log('[openZoneAssignModal] Processing permissions:', permsResponse.permissions);
+
       (permsResponse.permissions || []).forEach(perm => {
         if (perm.permission_type === 'cloudflare_account') {
           // This is a Cloudflare account permission
+          console.log('[openZoneAssignModal] Found Cloudflare account permission:', perm);
           accountsMap.set(perm.resource_id, {
             can_view: perm.can_view,
             can_add: perm.can_add,
@@ -461,6 +543,9 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
           });
         }
       });
+
+      console.log('[openZoneAssignModal] Loaded accountsMap:', Array.from(accountsMap.entries()));
+      console.log('[openZoneAssignModal] Loaded assignedMap:', Array.from(assignedMap.entries()));
 
       setAssignedZones(assignedMap);
       setAssignedAccounts(accountsMap);
@@ -511,6 +596,10 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
     if (!selectedUserForZones) return;
 
     try {
+      console.log('[saveZoneAssignments] Starting save for user:', selectedUserForZones.id);
+      console.log('[saveZoneAssignments] Assigned zones:', Array.from(assignedZones.entries()));
+      console.log('[saveZoneAssignments] Assigned accounts:', Array.from(assignedAccounts.entries()));
+
       // Get existing permissions to determine what to add/update/delete
       const response = await apiRequest<{ permissions: Permission[] }>(
         `/permissions/users/by-user/${selectedUserForZones.id}`
@@ -527,10 +616,16 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
       const existingAccountIds = new Set(existingAccountPerms.map(p => p.resource_id));
       const assignedAccountIds = new Set(assignedAccounts.keys());
 
+      console.log('[saveZoneAssignments] Existing zone keys:', Array.from(existingKeys));
+      console.log('[saveZoneAssignments] Assigned zone keys:', Array.from(assignedKeys));
+      console.log('[saveZoneAssignments] Existing account IDs:', Array.from(existingAccountIds));
+      console.log('[saveZoneAssignments] Assigned account IDs:', Array.from(assignedAccountIds));
+
       // Delete removed zone permissions
       for (const perm of existingZonePerms) {
         const key = `${perm.zone_type}-${perm.zone_id}`;
         if (!assignedKeys.has(key)) {
+          console.log('[saveZoneAssignments] Deleting zone permission:', key);
           await apiRequest(`/permissions/users/${perm.id}`, { method: "DELETE" });
         }
       }
@@ -538,49 +633,57 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
       // Delete removed account permissions
       for (const perm of existingAccountPerms) {
         if (!assignedAccountIds.has(perm.resource_id)) {
+          console.log('[saveZoneAssignments] Deleting account permission:', perm.resource_id);
           await apiRequest(`/permissions/users/${perm.id}`, { method: "DELETE" });
         }
       }
 
       // Add or update zone permissions
+      console.log('[saveZoneAssignments] Processing', assignedZones.size, 'zone assignments');
       for (const [key, assignment] of assignedZones.entries()) {
+        // Skip invalid assignments that don't have required zone fields
+        if (!assignment.zone_type) {
+          console.error('[saveZoneAssignments] Skipping invalid zone assignment (missing zone_type):', key, assignment);
+          continue;
+        }
+
+        const payload = {
+          user_id: selectedUserForZones.id,
+          zone_type: assignment.zone_type,
+          zone_id: assignment.zone_id ?? null,
+          can_view: assignment.can_view ?? false,
+          can_add: assignment.can_add ?? false,
+          can_edit: assignment.can_edit ?? false,
+          can_delete: assignment.can_delete ?? false,
+          can_api_access: assignment.can_api_access ?? false,
+        };
+        console.log('[saveZoneAssignments] Sending zone permission:', payload);
         await apiRequest("/permissions/users/grant", {
           method: "POST",
-          body: JSON.stringify({
-            user_id: selectedUserForZones.id,
-            zone_type: assignment.zone_type,
-            zone_id: assignment.zone_id,
-            can_view: assignment.can_view,
-            can_add: assignment.can_add,
-            can_edit: assignment.can_edit,
-            can_delete: assignment.can_delete,
-            can_api_access: assignment.can_api_access,
-          }),
+          body: JSON.stringify(payload),
         });
       }
 
       // Add or update account permissions
-      console.log('Assigned accounts to save:', Array.from(assignedAccounts.entries()));
+      console.log('[saveZoneAssignments] Processing', assignedAccounts.size, 'account assignments');
       for (const [accountId, permissions] of assignedAccounts.entries()) {
-        console.log('Saving account permission:', {
+        const payload = {
           user_id: selectedUserForZones.id,
           account_id: accountId,
-          permissions
-        });
+          can_view: permissions.can_view ?? false,
+          can_add: permissions.can_add ?? false,
+          can_edit: permissions.can_edit ?? false,
+          can_delete: permissions.can_delete ?? false,
+          can_api_access: permissions.can_api_access ?? false,
+        };
+        console.log('[saveZoneAssignments] Sending account permission to /permissions/cloudflare-accounts/grant:', payload);
         await apiRequest("/permissions/cloudflare-accounts/grant", {
           method: "POST",
-          body: JSON.stringify({
-            user_id: selectedUserForZones.id,
-            account_id: accountId,
-            can_view: permissions.can_view,
-            can_add: permissions.can_add,
-            can_edit: permissions.can_edit,
-            can_delete: permissions.can_delete,
-            can_api_access: permissions.can_api_access,
-          }),
+          body: JSON.stringify(payload),
         });
       }
 
+      console.log('[saveZoneAssignments] Save completed successfully');
       toast.success("Zone and account assignments saved successfully");
       setShowZoneAssignModal(false);
 
@@ -589,7 +692,7 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
         openPermissionsModal(selectedUserForPerms);
       }
     } catch (error) {
-      console.error("Failed to save zone assignments:", error);
+      console.error("[saveZoneAssignments] Failed to save:", error);
       const message = error instanceof Error ? error.message : "Failed to save assignments";
       toast.error(message);
     }
@@ -655,23 +758,12 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div className="min-h-screen bg-muted/30">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-4">
-        <div>
-          <h1 className="text-xl font-semibold">User Management</h1>
-          <p className="text-sm text-muted-foreground">Manage users, permissions, and audit logs</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => navigate("/")}>
-            Dashboard
-          </Button>
-          <Button variant="outline" onClick={() => navigate("/settings")}>
-            Settings
-          </Button>
-          <Button variant="outline" onClick={onLogout}>
-            Logout
-          </Button>
-        </div>
-      </header>
+      <UnifiedHeader
+        title="User Management"
+        subtitle="Manage users, permissions, and audit logs"
+        onLogout={onLogout}
+        user={user}
+      />
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
         <Tabs defaultValue="users">
@@ -696,6 +788,7 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                         <TableHead>Email</TableHead>
                         <TableHead>Full Name</TableHead>
                         <TableHead>Role</TableHead>
+                        <TableHead>Managed By</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>API Access</TableHead>
                         <TableHead>Last Login</TableHead>
@@ -718,6 +811,13 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                               }`}>
                                 {user.role}
                               </span>
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {user.managed_by_username ? (
+                                <span className="text-gray-700">{user.managed_by_username}</span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
                             </TableCell>
                             <TableCell>
                               <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
@@ -800,6 +900,7 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                         <TableHead>Current Page</TableHead>
                         <TableHead>Last Activity</TableHead>
                         <TableHead>Login Time</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -827,6 +928,16 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                           </TableCell>
                           <TableCell className="text-sm">
                             {new Date(session.login_at).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleTerminateSession(session.id)}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              Terminate
+                            </Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -870,8 +981,8 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                     <div className="relative">
                       <Label htmlFor="filter-user" className="text-xs">User</Label>
                       <Select
-                        value={logFilters.user}
-                        onValueChange={(value) => setLogFilters({ ...logFilters, user: value })}
+                        value={logFilters.user || "__all__"}
+                        onValueChange={(value) => setLogFilters({ ...logFilters, user: value === "__all__" ? '' : value })}
                       >
                         <SelectTrigger id="filter-user" className="h-9 text-sm">
                           <SelectValue placeholder="All users" />
@@ -886,7 +997,7 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                               onClick={(e) => e.stopPropagation()}
                             />
                           </div>
-                          <SelectItem value="">All users</SelectItem>
+                          <SelectItem value="__all__">All users</SelectItem>
                           {users
                             .filter(u => u.username.toLowerCase().includes(userSearchQuery.toLowerCase()))
                             .map(user => (
@@ -900,8 +1011,8 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                     <div className="relative">
                       <Label htmlFor="filter-action" className="text-xs">Action</Label>
                       <Select
-                        value={logFilters.action}
-                        onValueChange={(value) => setLogFilters({ ...logFilters, action: value })}
+                        value={logFilters.action || "__all__"}
+                        onValueChange={(value) => setLogFilters({ ...logFilters, action: value === "__all__" ? '' : value })}
                       >
                         <SelectTrigger id="filter-action" className="h-9 text-sm">
                           <SelectValue placeholder="All actions" />
@@ -916,7 +1027,7 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                               onClick={(e) => e.stopPropagation()}
                             />
                           </div>
-                          <SelectItem value="">All actions</SelectItem>
+                          <SelectItem value="__all__">All actions</SelectItem>
                           {[
                             { value: 'login', label: 'Login' },
                             { value: 'logout', label: 'Logout' },
@@ -949,8 +1060,8 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                     <div className="relative">
                       <Label htmlFor="filter-domain" className="text-xs">Domain</Label>
                       <Select
-                        value={logFilters.domain}
-                        onValueChange={(value) => setLogFilters({ ...logFilters, domain: value })}
+                        value={logFilters.domain || "__all__"}
+                        onValueChange={(value) => setLogFilters({ ...logFilters, domain: value === "__all__" ? '' : value })}
                       >
                         <SelectTrigger id="filter-domain" className="h-9 text-sm">
                           <SelectValue placeholder="All domains" />
@@ -965,7 +1076,7 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                               onClick={(e) => e.stopPropagation()}
                             />
                           </div>
-                          <SelectItem value="">All domains</SelectItem>
+                          <SelectItem value="__all__">All domains</SelectItem>
                           {allDomains
                             .filter(domain => domain.toLowerCase().includes(domainSearchQuery.toLowerCase()))
                             .map(domain => (
@@ -1156,57 +1267,130 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
       {/* Add User Modal */}
       {showAddUserModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
+          <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-lg max-h-[90vh] overflow-y-auto">
             <h2 className="mb-4 text-lg font-semibold">Add New User</h2>
             <div className="space-y-4">
-              <div>
-                <Label htmlFor="new-user-username">Username *</Label>
-                <Input
-                  id="new-user-username"
-                  value={newUser.username}
-                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="new-user-username">Username *</Label>
+                  <Input
+                    id="new-user-username"
+                    value={newUser.username}
+                    onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="new-user-email">Email *</Label>
+                  <Input
+                    id="new-user-email"
+                    type="email"
+                    value={newUser.email}
+                    onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                  />
+                </div>
               </div>
-              <div>
-                <Label htmlFor="new-user-email">Email *</Label>
-                <Input
-                  id="new-user-email"
-                  type="email"
-                  value={newUser.email}
-                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="new-user-password">Password *</Label>
+                  <Input
+                    id="new-user-password"
+                    type="password"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="new-user-full-name">Full Name</Label>
+                  <Input
+                    id="new-user-full-name"
+                    value={newUser.full_name}
+                    onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })}
+                  />
+                </div>
               </div>
-              <div>
-                <Label htmlFor="new-user-password">Password *</Label>
-                <Input
-                  id="new-user-password"
-                  type="password"
-                  value={newUser.password}
-                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="new-user-role">Role *</Label>
+                  <select
+                    id="new-user-role"
+                    className="w-full rounded-md border px-3 py-2"
+                    value={newUser.role}
+                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value as any })}
+                  >
+                    <option value="user">User</option>
+                    <option value="account_admin">Account Admin</option>
+                    <option value="superadmin">Superadmin</option>
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="new-user-managed-by">Managed By</Label>
+                  <select
+                    id="new-user-managed-by"
+                    className="w-full rounded-md border px-3 py-2"
+                    value={newUser.managed_by || ""}
+                    onChange={(e) => setNewUser({ ...newUser, managed_by: e.target.value ? Number(e.target.value) : null })}
+                  >
+                    <option value="">-- None --</option>
+                    {accountAdmins.map(admin => (
+                      <option key={admin.id} value={admin.id}>
+                        {admin.username} ({admin.role})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div>
-                <Label htmlFor="new-user-full-name">Full Name</Label>
-                <Input
-                  id="new-user-full-name"
-                  value={newUser.full_name}
-                  onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })}
-                />
+
+              <div className="border-t pt-4">
+                <h3 className="font-medium mb-3">Two-Factor Authentication</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="new-user-require-2fa"
+                      checked={newUser.require_2fa}
+                      onChange={(e) => setNewUser({ ...newUser, require_2fa: e.target.checked })}
+                    />
+                    <Label htmlFor="new-user-require-2fa" className="cursor-pointer">
+                      Require 2FA
+                    </Label>
+                  </div>
+
+                  {newUser.require_2fa && (
+                    <>
+                      <div>
+                        <Label htmlFor="new-user-twofa-method">2FA Method</Label>
+                        <select
+                          id="new-user-twofa-method"
+                          className="w-full rounded-md border px-3 py-2"
+                          value={newUser.twofa_method}
+                          onChange={(e) => setNewUser({ ...newUser, twofa_method: e.target.value as any })}
+                        >
+                          <option value="none">None</option>
+                          <option value="email">Email</option>
+                          <option value="sms">SMS</option>
+                        </select>
+                      </div>
+
+                      {newUser.twofa_method && newUser.twofa_method !== 'none' && (
+                        <div>
+                          <Label htmlFor="new-user-twofa-contact">2FA Contact ({newUser.twofa_method === 'email' ? 'Email' : 'Phone'})</Label>
+                          <Input
+                            id="new-user-twofa-contact"
+                            type={newUser.twofa_method === 'email' ? 'email' : 'tel'}
+                            value={newUser.twofa_contact}
+                            onChange={(e) => setNewUser({ ...newUser, twofa_contact: e.target.value })}
+                            placeholder={newUser.twofa_method === 'email' ? 'user@example.com' : '+1234567890'}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-              <div>
-                <Label htmlFor="new-user-role">Role *</Label>
-                <select
-                  id="new-user-role"
-                  className="w-full rounded-md border px-3 py-2"
-                  value={newUser.role}
-                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value as any })}
-                >
-                  <option value="user">User</option>
-                  <option value="account_admin">Account Admin</option>
-                  <option value="superadmin">Superadmin</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
+
+              <div className="flex items-center gap-2 border-t pt-4">
                 <input
                   type="checkbox"
                   id="new-user-active"
@@ -1217,6 +1401,7 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                   Active
                 </Label>
               </div>
+
               <div className="flex justify-end gap-2 pt-4">
                 <Button
                   variant="ghost"
@@ -1229,6 +1414,10 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                       full_name: "",
                       role: "user",
                       active: true,
+                      require_2fa: false,
+                      twofa_method: "none",
+                      twofa_contact: "",
+                      managed_by: null,
                     });
                   }}
                 >
@@ -1244,44 +1433,118 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
       {/* Edit User Modal */}
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
+          <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-lg max-h-[90vh] overflow-y-auto">
             <h2 className="mb-4 text-lg font-semibold">Edit User</h2>
             <div className="space-y-4">
-              <div>
-                <Label>Username</Label>
-                <Input value={editingUser.username} disabled />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Username</Label>
+                  <Input value={editingUser.username} disabled />
+                </div>
+                <div>
+                  <Label htmlFor="edit-user-email">Email *</Label>
+                  <Input
+                    id="edit-user-email"
+                    type="email"
+                    value={editingUser.email}
+                    onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                  />
+                </div>
               </div>
-              <div>
-                <Label htmlFor="edit-user-email">Email *</Label>
-                <Input
-                  id="edit-user-email"
-                  type="email"
-                  value={editingUser.email}
-                  onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
-                />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="edit-user-full-name">Full Name</Label>
+                  <Input
+                    id="edit-user-full-name"
+                    value={editingUser.full_name || ""}
+                    onChange={(e) => setEditingUser({ ...editingUser, full_name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-user-role">Role *</Label>
+                  <select
+                    id="edit-user-role"
+                    className="w-full rounded-md border px-3 py-2"
+                    value={editingUser.role}
+                    onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value as any })}
+                  >
+                    <option value="user">User</option>
+                    <option value="account_admin">Account Admin</option>
+                    <option value="superadmin">Superadmin</option>
+                  </select>
+                </div>
               </div>
+
               <div>
-                <Label htmlFor="edit-user-full-name">Full Name</Label>
-                <Input
-                  id="edit-user-full-name"
-                  value={editingUser.full_name || ""}
-                  onChange={(e) => setEditingUser({ ...editingUser, full_name: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-user-role">Role *</Label>
+                <Label htmlFor="edit-user-managed-by">Managed By</Label>
                 <select
-                  id="edit-user-role"
+                  id="edit-user-managed-by"
                   className="w-full rounded-md border px-3 py-2"
-                  value={editingUser.role}
-                  onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value as any })}
+                  value={editingUser.managed_by || ""}
+                  onChange={(e) => setEditingUser({ ...editingUser, managed_by: e.target.value ? Number(e.target.value) : null })}
                 >
-                  <option value="user">User</option>
-                  <option value="account_admin">Account Admin</option>
-                  <option value="superadmin">Superadmin</option>
+                  <option value="">-- None (Managed by Superadmin) --</option>
+                  {accountAdmins.filter(admin => admin.id !== editingUser.id).map(admin => (
+                    <option key={admin.id} value={admin.id}>
+                      {admin.username} ({admin.role})
+                    </option>
+                  ))}
                 </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {editingUser.role === 'user' ? 'Assign this user to an account admin' : 'Only applies to regular users'}
+                </p>
               </div>
-              <div className="flex items-center gap-2">
+
+              <div className="border-t pt-4">
+                <h3 className="font-medium mb-3">Two-Factor Authentication</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="edit-user-require-2fa"
+                      checked={Boolean(editingUser.require_2fa)}
+                      onChange={(e) => setEditingUser({ ...editingUser, require_2fa: e.target.checked ? 1 : 0 })}
+                    />
+                    <Label htmlFor="edit-user-require-2fa" className="cursor-pointer">
+                      Require 2FA
+                    </Label>
+                  </div>
+
+                  {Boolean(editingUser.require_2fa) && (
+                    <>
+                      <div>
+                        <Label htmlFor="edit-user-twofa-method">2FA Method</Label>
+                        <select
+                          id="edit-user-twofa-method"
+                          className="w-full rounded-md border px-3 py-2"
+                          value={editingUser.twofa_method || 'none'}
+                          onChange={(e) => setEditingUser({ ...editingUser, twofa_method: e.target.value as any })}
+                        >
+                          <option value="none">None</option>
+                          <option value="email">Email</option>
+                          <option value="sms">SMS</option>
+                        </select>
+                      </div>
+
+                      {editingUser.twofa_method && editingUser.twofa_method !== 'none' && (
+                        <div>
+                          <Label htmlFor="edit-user-twofa-contact">2FA Contact ({editingUser.twofa_method === 'email' ? 'Email' : 'Phone'})</Label>
+                          <Input
+                            id="edit-user-twofa-contact"
+                            type={editingUser.twofa_method === 'email' ? 'email' : 'tel'}
+                            value={editingUser.twofa_contact || ""}
+                            onChange={(e) => setEditingUser({ ...editingUser, twofa_contact: e.target.value })}
+                            placeholder={editingUser.twofa_method === 'email' ? 'user@example.com' : '+1234567890'}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 border-t pt-4">
                 <input
                   type="checkbox"
                   id="edit-user-active"
@@ -1291,23 +1554,41 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                 <Label htmlFor="edit-user-active" className="cursor-pointer">
                   Active
                 </Label>
+                <span className="text-xs text-gray-500 ml-2">(Unchecking will terminate all sessions)</span>
               </div>
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="ghost" onClick={() => setEditingUser(null)}>
-                  Cancel
-                </Button>
+
+              <div className="flex justify-between items-center gap-2 pt-4 border-t">
                 <Button
-                  onClick={() =>
-                    handleUpdateUser(editingUser.id, {
-                      email: editingUser.email,
-                      full_name: editingUser.full_name,
-                      role: editingUser.role,
-                      active: Boolean(editingUser.active),
-                    })
-                  }
+                  variant="outline"
+                  onClick={() => {
+                    setUserToResetPassword(editingUser);
+                    setShowResetPasswordModal(true);
+                  }}
+                  className="text-orange-600"
                 >
-                  Update User
+                  Reset Password
                 </Button>
+                <div className="flex gap-2">
+                  <Button variant="ghost" onClick={() => setEditingUser(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      handleUpdateUser(editingUser.id, {
+                        email: editingUser.email,
+                        full_name: editingUser.full_name,
+                        role: editingUser.role,
+                        active: Boolean(editingUser.active),
+                        require_2fa: Boolean(editingUser.require_2fa),
+                        twofa_method: editingUser.twofa_method,
+                        twofa_contact: editingUser.twofa_contact,
+                        managed_by: editingUser.managed_by,
+                      })
+                    }
+                  >
+                    Update User
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -1707,7 +1988,7 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
       {/* Permissions Management Modal */}
       {showPermissionsModal && selectedUserForPerms && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
             <CardHeader>
               <div className="flex justify-between items-center">
                 <CardTitle>Manage Permissions for {selectedUserForPerms.username}</CardTitle>
@@ -1716,7 +1997,7 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="flex-1 overflow-y-auto space-y-6">
               {/* API Access Section */}
               <div className="border rounded-lg p-4 bg-gray-50">
                 <div className="flex items-center justify-between">
@@ -1843,6 +2124,56 @@ export function UserManagement({ onLogout }: { onLogout: () => void }) {
                   disabled={deleteConfirmText !== userToDelete.username}
                 >
                   Delete User
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {showResetPasswordModal && userToResetPassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>Reset Password for {userToResetPassword.username}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="new-password">New Password *</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter new password"
+                  minLength={6}
+                />
+                <p className="text-xs text-gray-500 mt-1">Minimum 6 characters</p>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
+                <p className="text-sm text-yellow-800">
+                  <strong>Warning:</strong> This will reset the user's password and terminate all their active sessions.
+                </p>
+              </div>
+
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowResetPasswordModal(false);
+                    setUserToResetPassword(null);
+                    setNewPassword("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleResetPassword}
+                  disabled={!newPassword || newPassword.length < 6}
+                >
+                  Reset Password
                 </Button>
               </div>
             </CardContent>

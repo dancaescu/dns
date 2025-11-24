@@ -3,6 +3,7 @@ import { z } from "zod";
 import { query, execute } from "../db.js";
 import { authenticateToken, hasScope, logTokenUsage } from "../tokenAuth.js";
 import { cloudflareCreateZone } from "../cloudflare.js";
+import { requirePermission, requireSoaPermissionForRr } from "../apiPermissions.js";
 
 const router = Router();
 
@@ -72,7 +73,11 @@ const createZoneSchema = z.object({
  * POST /api/v1/zones
  * Create a new Cloudflare zone
  */
-router.post("/zones", requireScope("zones:write"), async (req: any, res) => {
+router.post(
+  "/zones",
+  requireScope("zones:write"),
+  requirePermission("cloudflare", "add", { zoneType: "cloudflare" }),
+  async (req: any, res) => {
   const parsed = createZoneSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
@@ -140,11 +145,16 @@ router.post("/zones", requireScope("zones:write"), async (req: any, res) => {
   }
 });
 
+
 /**
  * GET /api/v1/zones
  * List Cloudflare zones
  */
-router.get("/zones", requireScope("zones:read"), async (req: any, res) => {
+router.get(
+  "/zones",
+  requireScope("zones:read"),
+  requirePermission("cloudflare", "view", { zoneType: "cloudflare" }),
+  async (req: any, res) => {
   try {
     const accountId = req.query.account_id ? Number(req.query.account_id) : null;
     const search = req.query.search ? String(req.query.search) : null;
@@ -180,7 +190,11 @@ router.get("/zones", requireScope("zones:read"), async (req: any, res) => {
  * GET /api/v1/zones/:id
  * Get zone details
  */
-router.get("/zones/:id", requireScope("zones:read"), async (req: any, res) => {
+router.get(
+  "/zones/:id",
+  requireScope("zones:read"),
+  requirePermission("cloudflare", "view", { zoneType: "cloudflare", resourceIdParam: "id" }),
+  async (req: any, res) => {
   try {
     const [rows] = await query(
       `SELECT z.*, a.name AS account_name, a.cf_account_id
@@ -209,7 +223,11 @@ router.get("/zones/:id", requireScope("zones:read"), async (req: any, res) => {
  * GET /api/v1/zones/:zoneId/records
  * List DNS records for a zone
  */
-router.get("/zones/:zoneId/records", requireScope("records:read"), async (req: any, res) => {
+router.get(
+  "/zones/:zoneId/records",
+  requireScope("records:read"),
+  requirePermission("cloudflare", "view", { zoneType: "cloudflare", resourceIdParam: "zoneId" }),
+  async (req: any, res) => {
   try {
     const [rows] = await query(
       `SELECT id, cf_record_id, record_type, name, content, ttl, proxied,
@@ -248,7 +266,11 @@ const createSoaSchema = z.object({
  * GET /api/v1/soa
  * List SOA records
  */
-router.get("/soa", requireScope("soa:read"), async (req: any, res) => {
+router.get(
+  "/soa",
+  requireScope("soa:read"),
+  requirePermission("soa", "view", { zoneType: "soa" }),
+  async (req: any, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 100, 1000);
     const offset = Number(req.query.offset) || 0;
@@ -279,7 +301,11 @@ router.get("/soa", requireScope("soa:read"), async (req: any, res) => {
  * POST /api/v1/soa
  * Create SOA record
  */
-router.post("/soa", requireScope("soa:write"), async (req: any, res) => {
+router.post(
+  "/soa",
+  requireScope("soa:write"),
+  requirePermission("soa", "add", { zoneType: "soa" }),
+  async (req: any, res) => {
   const parsed = createSoaSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
@@ -317,7 +343,11 @@ router.post("/soa", requireScope("soa:write"), async (req: any, res) => {
  * PUT /api/v1/soa/:id
  * Update SOA record
  */
-router.put("/soa/:id", requireScope("soa:write"), async (req: any, res) => {
+router.put(
+  "/soa/:id",
+  requireScope("soa:write"),
+  requirePermission("soa", "edit", { zoneType: "soa", resourceIdParam: "id" }),
+  async (req: any, res) => {
   const parsed = createSoaSchema.partial().safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
@@ -348,7 +378,11 @@ router.put("/soa/:id", requireScope("soa:write"), async (req: any, res) => {
  * DELETE /api/v1/soa/:id
  * Delete SOA record
  */
-router.delete("/soa/:id", requireScope("soa:write"), async (req: any, res) => {
+router.delete(
+  "/soa/:id",
+  requireScope("soa:write"),
+  requirePermission("soa", "delete", { zoneType: "soa", resourceIdParam: "id" }),
+  async (req: any, res) => {
   try {
     await execute("DELETE FROM soa WHERE id = ?", [req.params.id]);
     res.status(204).send();
@@ -375,7 +409,11 @@ const createRrSchema = z.object({
  * GET /api/v1/rr
  * List RR records
  */
-router.get("/rr", requireScope("rr:read"), async (req: any, res) => {
+router.get(
+  "/rr",
+  requireScope("rr:read"),
+  requirePermission("soa", "view", { zoneType: "soa" }),
+  async (req: any, res) => {
   try {
     const zone = req.query.zone ? Number(req.query.zone) : null;
     const limit = Math.min(Number(req.query.limit) || 100, 1000);
@@ -404,7 +442,11 @@ router.get("/rr", requireScope("rr:read"), async (req: any, res) => {
  * POST /api/v1/rr
  * Create RR record
  */
-router.post("/rr", requireScope("rr:write"), async (req: any, res) => {
+router.post(
+  "/rr",
+  requireScope("rr:write"),
+  requireSoaPermissionForRr("add"),
+  async (req: any, res) => {
   const parsed = createRrSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
@@ -428,7 +470,11 @@ router.post("/rr", requireScope("rr:write"), async (req: any, res) => {
  * PUT /api/v1/rr/:id
  * Update RR record
  */
-router.put("/rr/:id", requireScope("rr:write"), async (req: any, res) => {
+router.put(
+  "/rr/:id",
+  requireScope("rr:write"),
+  requireSoaPermissionForRr("edit"),
+  async (req: any, res) => {
   const parsed = createRrSchema.partial().safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
@@ -459,7 +505,11 @@ router.put("/rr/:id", requireScope("rr:write"), async (req: any, res) => {
  * DELETE /api/v1/rr/:id
  * Delete RR record
  */
-router.delete("/rr/:id", requireScope("rr:write"), async (req: any, res) => {
+router.delete(
+  "/rr/:id",
+  requireScope("rr:write"),
+  requireSoaPermissionForRr("delete"),
+  async (req: any, res) => {
   try {
     await execute("DELETE FROM rr WHERE id = ?", [req.params.id]);
     res.status(204).send();

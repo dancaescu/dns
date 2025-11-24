@@ -105,7 +105,7 @@ router.post('/zones/assign', requireAuth, async (req: Request, res: Response) =>
         can_edit = VALUES(can_edit),
         can_delete = VALUES(can_delete),
         updated_at = CURRENT_TIMESTAMP
-    `, [zone_type, zone_id, account_id, user.id, can_view ?? 1, can_add ?? 0, can_edit ?? 0, can_delete ?? 0]);
+    `, [zone_type, zone_id, account_id, user.userId, can_view ?? 1, can_add ?? 0, can_edit ?? 0, can_delete ?? 0]);
 
     res.json({ success: true, message: 'Zone assigned successfully' });
   } catch (error) {
@@ -150,7 +150,7 @@ router.get('/users/:accountId', requireAuth, async (req: Request, res: Response)
     const isAccountAdmin = await query<RowDataPacket[]>(`
       SELECT 1 FROM dnsmanager_user_accounts
       WHERE account_id = ? AND user_id = ? AND is_account_admin = 1
-    `, [accountId, user.id]);
+    `, [accountId, user.userId]);
 
     if (!isAdmin && isAccountAdmin.length === 0) {
       return res.status(403).json({ error: 'Access denied' });
@@ -203,7 +203,7 @@ router.get('/users/by-user/:userId', requireAuth, async (req: Request, res: Resp
     }
 
     // Get user permissions including zones and Cloudflare accounts
-    const permissions = await query<RowDataPacket[]>(`
+    const [permissions] = await query<RowDataPacket[]>(`
       SELECT
         p.id,
         p.permission_type,
@@ -218,6 +218,7 @@ router.get('/users/by-user/:userId', requireAuth, async (req: Request, res: Resp
           ELSE 'Unknown'
         END AS zone_name,
         p.resource_id AS zone_id,
+        p.resource_id,
         p.can_view,
         p.can_add,
         p.can_edit,
@@ -287,7 +288,7 @@ router.post('/users/grant', requireAuth, async (req: Request, res: Response) => 
       can_edit ?? false,
       can_delete ?? false,
       can_api_access ?? false,
-      user.id
+      user.userId
     ];
 
     console.log('[Grant Permission] Parameters:', {
@@ -300,7 +301,7 @@ router.post('/users/grant', requireAuth, async (req: Request, res: Response) => 
       can_edit,
       can_delete,
       can_api_access,
-      created_by: user.id,
+      created_by: user.userId,
       params
     });
 
@@ -324,7 +325,7 @@ router.post('/users/grant', requireAuth, async (req: Request, res: Response) => 
           INSERT INTO dnsmanager_user_permissions
             (user_id, permission_type, zone_type, resource_id, can_view, can_add, can_edit, can_delete, can_api_access, created_by)
           VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
-        `, [user_id, permission_type, zone_type, can_view ?? true, can_add ?? false, can_edit ?? false, can_delete ?? false, can_api_access ?? false, user.id]);
+        `, [user_id, permission_type, zone_type, can_view ?? true, can_add ?? false, can_edit ?? false, can_delete ?? false, can_api_access ?? false, user.userId]);
       }
     } else {
       // Insert or update permission for specific zone
@@ -442,11 +443,12 @@ router.post('/cloudflare-accounts/grant', requireAuth, async (req: Request, res:
       `, [can_view ?? true, can_add ?? false, can_edit ?? false, can_delete ?? false, can_api_access ?? false, user_id, permission_type, account_id]);
     } else {
       // Insert new permission
+      const params = [user_id, permission_type, account_id, can_view ?? true, can_add ?? false, can_edit ?? false, can_delete ?? false, can_api_access ?? false, user.userId];
       await execute(`
         INSERT INTO dnsmanager_user_permissions
-          (user_id, permission_type, resource_id, can_view, can_add, can_edit, can_delete, can_api_access, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [user_id, permission_type, account_id, can_view ?? true, can_add ?? false, can_edit ?? false, can_delete ?? false, can_api_access ?? false, user.id]);
+          (user_id, permission_type, zone_type, resource_id, can_view, can_add, can_edit, can_delete, can_api_access, created_by)
+        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+      `, params);
     }
 
     res.json({ success: true, message: 'Cloudflare account permission granted' });
@@ -539,10 +541,10 @@ router.delete('/api-access/:userId/token/:tokenId', requireAuth, async (req: Req
     const isAccountAdmin = await query<RowDataPacket[]>(`
       SELECT 1 FROM dnsmanager_user_accounts
       WHERE account_id = ? AND user_id = ? AND is_account_admin = 1
-    `, [accountId, user.id]);
+    `, [accountId, user.userId]);
 
     // Users can also revoke their own tokens
-    const isSelf = user.id === parseInt(userId);
+    const isSelf = user.userId === parseInt(userId);
 
     if (!isAdmin && isAccountAdmin.length === 0 && !isSelf) {
       return res.status(403).json({ error: 'Access denied' });

@@ -7,6 +7,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Checkbox } from "../components/ui/checkbox";
 import { apiRequest } from "../lib/api";
 import { toast } from "../components/ui/toast";
+import { UnifiedHeader } from "../components/UnifiedHeader";
+
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  role: "superadmin" | "account_admin" | "user";
+}
 
 interface Token {
   id: number;
@@ -42,7 +50,7 @@ const AVAILABLE_SCOPES = [
   { value: "cloudflare:write", label: "Cloudflare: Write", description: "Manage Cloudflare records" },
 ];
 
-export function ApiTokensPage() {
+export function ApiTokensPage({ onLogout, user }: { onLogout: () => void; user: User | null }) {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showTokenModal, setShowTokenModal] = useState(false);
@@ -134,11 +142,17 @@ export function ApiTokensPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">API Tokens</h1>
-        <Button onClick={() => setShowCreateModal(true)}>Create New Token</Button>
-      </div>
+    <div className="min-h-screen bg-muted/30">
+      <UnifiedHeader
+        title="API Tokens"
+        subtitle="Manage your API access tokens"
+        onLogout={onLogout}
+        user={user}
+      />
+      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
+        <div className="flex justify-end">
+          <Button onClick={() => setShowCreateModal(true)}>Create New Token</Button>
+        </div>
 
       <Card>
         <CardHeader>
@@ -325,6 +339,7 @@ export function ApiTokensPage() {
           </Card>
         </div>
       )}
+      </main>
     </div>
   );
 }

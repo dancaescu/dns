@@ -5,6 +5,14 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { apiRequest } from "../lib/api";
 import { useNavigate } from "react-router-dom";
+import { UnifiedHeader } from "../components/UnifiedHeader";
+
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  role: "superadmin" | "account_admin" | "user";
+}
 
 interface Setting {
   id: number;
@@ -15,7 +23,7 @@ interface Setting {
   updated_at: string;
 }
 
-export function Settings({ onLogout }: { onLogout: () => void }) {
+export function Settings({ onLogout, user }: { onLogout: () => void; user: User | null }) {
   const navigate = useNavigate();
   const [settings, setSettings] = useState<Setting[]>([]);
   const [multitelApiUser, setMultitelApiUser] = useState("");
@@ -129,20 +137,12 @@ export function Settings({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div className="min-h-screen bg-muted/30">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-4">
-        <div>
-          <h1 className="text-xl font-semibold">System Settings</h1>
-          <p className="text-sm text-muted-foreground">Configure system-wide settings</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => navigate("/")}>
-            Back to Dashboard
-          </Button>
-          <Button variant="outline" onClick={onLogout}>
-            Logout
-          </Button>
-        </div>
-      </header>
+      <UnifiedHeader
+        title="System Settings"
+        subtitle="Configure system-wide settings"
+        onLogout={onLogout}
+        user={user}
+      />
 
       <main className="mx-auto max-w-4xl space-y-6 px-4 py-6">
         <Card>

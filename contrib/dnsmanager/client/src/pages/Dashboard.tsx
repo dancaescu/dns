@@ -13,6 +13,7 @@ import { cn } from "../lib/utils";
 import { TicketModal } from "../components/TicketModal";
 import { toast, ToastContainer } from "../components/ui/toast";
 import html2canvas from "html2canvas";
+import { UnifiedHeader } from "../components/UnifiedHeader";
 
 interface SoaRecord {
   id: number;
@@ -270,6 +271,33 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
   const [ticketScreenshot, setTicketScreenshot] = useState<string | null>(null);
   const [ticketPageUrl, setTicketPageUrl] = useState("");
 
+  // Copy to Cloudflare modal
+  const [showCopyToCfModal, setShowCopyToCfModal] = useState(false);
+  const [soaToCopy, setSoaToCopy] = useState<SoaRecord | null>(null);
+  const [copyToCfAccountId, setCopyToCfAccountId] = useState<number | null>(null);
+  const [copyingToCf, setCopyingToCf] = useState(false);
+
+  // Nameservers result modal
+  const [showNameserversModal, setShowNameserversModal] = useState(false);
+  const [migrationResult, setMigrationResult] = useState<{
+    zone_name: string;
+    name_servers: string[];
+    records_created: number;
+    records_failed: number;
+  } | null>(null);
+
+  // Copy from Cloudflare to MyDNS modal
+  const [showCopyToMyDnsModal, setShowCopyToMyDnsModal] = useState(false);
+  const [zoneToImport, setZoneToImport] = useState<CloudflareZone | null>(null);
+  const [copyingToMyDns, setCopyingToMyDns] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    zone_name: string;
+    soa_id: number;
+    records_created: number;
+    records_failed: number;
+  } | null>(null);
+  const [showImportResultModal, setShowImportResultModal] = useState(false);
+
   // Loading states for add buttons
   const [isAddingSoa, setIsAddingSoa] = useState(false);
   const [isAddingRr, setIsAddingRr] = useState(false);
@@ -280,6 +308,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
   const [rrAddType, setRrAddType] = useState("A");
 
   useEffect(() => {
+    console.log('Dashboard mounted - Copy to MyDNS button should be visible');
     refreshSoa();
     loadAccounts();
     loadZones();
@@ -592,6 +621,98 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
     }
   }
 
+  function openCopyToCfModal(soa: SoaRecord) {
+    setSoaToCopy(soa);
+    setCopyToCfAccountId(null);
+    setShowCopyToCfModal(true);
+  }
+
+  async function handleCopyToCloudflare() {
+    if (!soaToCopy || !copyToCfAccountId || copyingToCf) return;
+
+    setCopyingToCf(true);
+    try {
+      const response = await apiRequest<{
+        success: boolean;
+        zone_id: number;
+        cf_zone_id: string;
+        zone_name: string;
+        name_servers: string[];
+        status: string;
+        records_created: number;
+        records_failed: number;
+        failed_records: any[];
+      }>(`/soa/${soaToCopy.id}/copy-to-cloudflare`, {
+        method: "POST",
+        body: JSON.stringify({
+          cf_account_id: copyToCfAccountId,
+        }),
+      });
+
+      setShowCopyToCfModal(false);
+
+      // Store migration result and show nameservers modal
+      setMigrationResult({
+        zone_name: response.zone_name,
+        name_servers: response.name_servers,
+        records_created: response.records_created,
+        records_failed: response.records_failed,
+      });
+      setShowNameserversModal(true);
+
+      // Refresh zones list to show the new zone in Cloudflare Mirror
+      await loadZones();
+    } catch (error: any) {
+      console.error("Failed to copy zone to Cloudflare:", error);
+      toast.error(error.message || "Failed to copy zone to Cloudflare");
+    } finally {
+      setCopyingToCf(false);
+    }
+  }
+
+  function openCopyToMyDnsModal(zone: CloudflareZone) {
+    setZoneToImport(zone);
+    setShowCopyToMyDnsModal(true);
+  }
+
+  async function handleCopyToMyDns() {
+    if (!zoneToImport || copyingToMyDns) return;
+
+    setCopyingToMyDns(true);
+    try {
+      const response = await apiRequest<{
+        success: boolean;
+        soa_id: number;
+        zone_name: string;
+        records_created: number;
+        records_failed: number;
+        created_records: any[];
+        failed_records: any[];
+      }>(`/cloudflare/zones/${zoneToImport.id}/copy-to-mydns`, {
+        method: "POST",
+      });
+
+      setShowCopyToMyDnsModal(false);
+
+      // Store import result and show result modal
+      setImportResult({
+        zone_name: response.zone_name,
+        soa_id: response.soa_id,
+        records_created: response.records_created,
+        records_failed: response.records_failed,
+      });
+      setShowImportResultModal(true);
+
+      // Refresh SOA records to show the new zone
+      await refreshSoa();
+    } catch (error: any) {
+      console.error("Failed to copy zone to MyDNS:", error);
+      toast.error(error.message || "Failed to copy zone to MyDNS");
+    } finally {
+      setCopyingToMyDns(false);
+    }
+  }
+
   async function handleRrCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!rrZoneId || isAddingRr) return; // Prevent duplicate submissions
@@ -802,44 +923,13 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
 
   return (
     <div className="min-h-screen bg-muted/30">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-4">
-        <div>
-          <h1 className="text-xl font-semibold">DNS Manager</h1>
-          <p className="text-sm text-muted-foreground">Manage SOA/RR and mirrored Cloudflare data</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => navigate("/api-docs")}>
-            API Docs
-          </Button>
-          <Button variant="outline" onClick={() => navigate("/my-settings")}>
-            My Settings
-          </Button>
-          <Button variant="outline" onClick={openSupportTicketModal}>
-            Support
-          </Button>
-          {user?.role === "superadmin" && (
-            <>
-              <Button variant="outline" onClick={() => navigate("/users")}>
-                User Management
-              </Button>
-              <Button variant="outline" onClick={() => navigate("/zone-assignments")}>
-                Zone Assignments
-              </Button>
-              <Button variant="outline" onClick={() => navigate("/settings")}>
-                System Settings
-              </Button>
-            </>
-          )}
-          {(user?.role === "superadmin" || user?.role === "account_admin") && (
-            <Button variant="outline" onClick={() => navigate("/permissions")}>
-              Permissions
-            </Button>
-          )}
-          <Button variant="outline" onClick={onLogout}>
-            Logout
-          </Button>
-        </div>
-      </header>
+      <UnifiedHeader
+        title="DNS Manager"
+        subtitle="Manage SOA/RR and mirrored Cloudflare data"
+        onLogout={onLogout}
+        onSupportClick={openSupportTicketModal}
+        user={user}
+      />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
         <Tabs defaultValue="soa">
           <TabsList>
@@ -1043,14 +1133,25 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                                     {editingSoaId === soa.id ? "Cancel" : "Edit"}
                                   </Button>
                                   {editingSoaId !== soa.id && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleSoaDelete(soa.id, soa.origin)}
-                                      className="text-red-600 hover:text-red-700"
-                                    >
-                                      Delete
-                                    </Button>
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => openCopyToCfModal(soa)}
+                                        className="text-orange-600 hover:text-orange-700"
+                                        title="Copy zone to Cloudflare"
+                                      >
+                                        Copy to CF
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleSoaDelete(soa.id, soa.origin)}
+                                        className="text-red-600 hover:text-red-700"
+                                      >
+                                        Delete
+                                      </Button>
+                                    </>
                                   )}
                                 </div>
                               </TableCell>
@@ -1768,6 +1869,15 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                                       <Button variant="ghost" size="sm" onClick={() => openZone(zone.id)}>
                                         View
                                       </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => openCopyToMyDnsModal(zone)}
+                                        className="text-blue-600 hover:text-blue-700"
+                                        title="Copy zone to MyDNS"
+                                      >
+                                        Copy to MyDNS
+                                      </Button>
                                       <Button variant="ghost" size="sm" onClick={() => toggleFavorite(zone)}>
                                         <Star
                                           className={cn(
@@ -1809,6 +1919,242 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
         screenshotData={ticketScreenshot}
         pageUrl={ticketPageUrl}
       />
+
+      {/* Copy to Cloudflare Modal */}
+      {showCopyToCfModal && soaToCopy && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-lg">
+            <CardHeader>
+              <CardTitle>Copy Zone to Cloudflare</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="font-semibold">Zone to copy:</Label>
+                <p className="text-sm text-gray-600 mt-1">{soaToCopy.origin}</p>
+              </div>
+
+              <div>
+                <Label htmlFor="cf-account-select">Select Cloudflare Account:</Label>
+                <select
+                  id="cf-account-select"
+                  className="w-full mt-1 rounded-md border border-gray-300 px-3 py-2"
+                  value={copyToCfAccountId || ""}
+                  onChange={(e) => setCopyToCfAccountId(Number(e.target.value))}
+                >
+                  <option value="">-- Select Account --</option>
+                  {cfAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> This will create the zone and all DNS records in Cloudflare.
+                  After migration, you'll receive the nameservers to set for your domain.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowCopyToCfModal(false);
+                    setSoaToCopy(null);
+                    setCopyToCfAccountId(null);
+                  }}
+                  disabled={copyingToCf}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCopyToCloudflare}
+                  disabled={!copyToCfAccountId || copyingToCf}
+                >
+                  {copyingToCf ? "Copying..." : "Copy to Cloudflare"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Nameservers Result Modal */}
+      {showNameserversModal && migrationResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-2xl">
+            <CardHeader>
+              <CardTitle>Zone Copied Successfully!</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded p-4">
+                <p className="text-sm text-green-800">
+                  <strong>Zone:</strong> {migrationResult.zone_name}
+                </p>
+                <p className="text-sm text-green-800 mt-1">
+                  <strong>Records created:</strong> {migrationResult.records_created}
+                  {migrationResult.records_failed > 0 && (
+                    <span className="text-orange-700"> ({migrationResult.records_failed} failed)</span>
+                  )}
+                </p>
+              </div>
+
+              <div>
+                <Label className="font-semibold text-lg mb-2 block">
+                  Set these nameservers for your domain:
+                </Label>
+                <div className="bg-gray-50 border border-gray-300 rounded p-4 space-y-2">
+                  {migrationResult.name_servers.map((ns, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <code className="text-sm bg-white px-3 py-2 rounded border flex-1 font-mono">
+                        {ns}
+                      </code>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          navigator.clipboard.writeText(ns);
+                          toast.success("Copied to clipboard");
+                        }}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                <p className="text-sm text-blue-800">
+                  <strong>Next steps:</strong>
+                </p>
+                <ol className="text-sm text-blue-800 mt-2 ml-4 list-decimal space-y-1">
+                  <li>Log in to your domain registrar</li>
+                  <li>Update the nameservers to the ones shown above</li>
+                  <li>Wait for DNS propagation (can take up to 24-48 hours)</li>
+                  <li>Check the zone in the Cloudflare Mirror tab</li>
+                </ol>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const allNameservers = migrationResult.name_servers.join("\n");
+                    navigator.clipboard.writeText(allNameservers);
+                    toast.success("All nameservers copied to clipboard");
+                  }}
+                >
+                  Copy All
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowNameserversModal(false);
+                    setMigrationResult(null);
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Copy to MyDNS Confirmation Modal */}
+      {showCopyToMyDnsModal && zoneToImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-lg">
+            <CardHeader>
+              <CardTitle>Copy Zone to MyDNS</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="font-semibold">Zone to import:</Label>
+                <p className="text-sm text-gray-600 mt-1">{zoneToImport.name}</p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> This will create an SOA record and import all DNS records from Cloudflare
+                  into MyDNS. If an SOA record with this origin already exists, the operation will fail.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowCopyToMyDnsModal(false);
+                    setZoneToImport(null);
+                  }}
+                  disabled={copyingToMyDns}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCopyToMyDns}
+                  disabled={copyingToMyDns}
+                >
+                  {copyingToMyDns ? "Copying..." : "Copy to MyDNS"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Import Result Modal */}
+      {showImportResultModal && importResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-2xl">
+            <CardHeader>
+              <CardTitle>Zone Imported Successfully!</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded p-4">
+                <p className="text-sm text-green-800">
+                  <strong>Zone:</strong> {importResult.zone_name}
+                </p>
+                <p className="text-sm text-green-800 mt-1">
+                  <strong>SOA ID:</strong> {importResult.soa_id}
+                </p>
+                <p className="text-sm text-green-800 mt-1">
+                  <strong>Records imported:</strong> {importResult.records_created}
+                  {importResult.records_failed > 0 && (
+                    <span className="text-orange-700"> ({importResult.records_failed} failed)</span>
+                  )}
+                </p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                <p className="text-sm text-blue-800">
+                  <strong>Next steps:</strong>
+                </p>
+                <ul className="text-sm text-blue-800 mt-2 ml-4 list-disc space-y-1">
+                  <li>Check the zone in the SOA Records tab</li>
+                  <li>Review and edit DNS records as needed</li>
+                  <li>Update your nameservers to point to MyDNS if needed</li>
+                </ul>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button
+                  onClick={() => {
+                    setShowImportResultModal(false);
+                    setImportResult(null);
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <ToastContainer />
     </div>
   );

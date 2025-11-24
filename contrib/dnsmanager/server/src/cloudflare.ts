@@ -307,6 +307,11 @@ export async function cloudflareDeleteLoadBalancer(localZoneId: number, cfLbId: 
   return cfRequest("DELETE", `/zones/${zone.cf_zone_id}/load_balancers/${cfLbId}`);
 }
 
+export async function cloudflarePurgeCache(localZoneId: number) {
+  const zone = await fetchZoneRow(localZoneId);
+  return cfRequest("POST", `/zones/${zone.cf_zone_id}/purge_cache`, { purge_everything: true });
+}
+
 export async function cloudflareGetPoolHealth(cfAccountId: string, cfPoolId: string) {
   return cfRequest("GET", `/accounts/${cfAccountId}/load_balancers/pools/${cfPoolId}/health`);
 }

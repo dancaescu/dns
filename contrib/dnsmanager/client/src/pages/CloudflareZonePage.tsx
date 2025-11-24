@@ -28,6 +28,14 @@ import { TagInput } from "../components/ui/tag-input";
 import { SyncModal, SyncMode } from "../components/SyncModal";
 import { LoadBalancerEditor } from "../components/LoadBalancerEditor";
 import { HealthStatusBadge } from "../components/HealthStatusBadge";
+import { UnifiedHeader } from "../components/UnifiedHeader";
+
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  role: "superadmin" | "account_admin" | "user";
+}
 
 type CloudflareZoneDetail = {
   id: number;
@@ -153,9 +161,9 @@ function validateDomainName(value: string): { valid: boolean; error?: string } {
   // Remove trailing dot for validation
   const name = value.endsWith('.') ? value.slice(0, -1) : value;
 
-  // Check for invalid characters
-  if (!/^[a-zA-Z0-9.-]+$/.test(name)) {
-    return { valid: false, error: 'Invalid domain name. Use only letters, numbers, dots, and hyphens.' };
+  // Check for invalid characters - allow underscores for DKIM and other TXT records
+  if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
+    return { valid: false, error: 'Invalid domain name. Use only letters, numbers, dots, hyphens, and underscores.' };
   }
 
   // Check each label
@@ -167,6 +175,7 @@ function validateDomainName(value: string): { valid: boolean; error?: string } {
     if (label.length > 63) {
       return { valid: false, error: 'Domain name has a label longer than 63 characters' };
     }
+    // Allow hyphens and underscores in the middle of labels
     if (label.startsWith('-') || label.endsWith('-')) {
       return { valid: false, error: 'Domain name labels cannot start or end with hyphen' };
     }
@@ -414,7 +423,7 @@ function validateRecordContent(type: string, value: string, certData?: any): { v
   }
 }
 
-export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
+export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; user: User | null }) {
   const params = useParams<{ zoneId: string }>();
   const numericZoneId = Number(params.zoneId);
   const navigate = useNavigate();
@@ -1040,6 +1049,25 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  async function handlePurgeCache() {
+    if (!confirm("Are you sure you want to purge all cached content for this zone? This action cannot be undone.")) {
+      return;
+    }
+
+    setRecordLoading(true);
+    try {
+      await apiRequest(`/cloudflare/zones/${numericZoneId}/purge-cache`, {
+        method: "POST",
+      });
+      toast.success("Cache purged successfully");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to purge cache";
+      toast.error(message);
+    } finally {
+      setRecordLoading(false);
+    }
+  }
+
   function startAddLoadBalancer() {
     setEditingLoadBalancer(null);
     setShowLbEditor(true);
@@ -1172,34 +1200,27 @@ export function CloudflareZonePage({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="min-h-screen bg-muted/30">
       <ToastContainer />
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-6 py-4">
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
-            Back
-          </Button>
-          <div>
-            <h1 className="text-xl font-semibold">Cloudflare Zone</h1>
-            {zone && (
-              <p className="text-sm text-muted-foreground">
-                {zone.name} · Account: {zone.account_name || "Unknown"}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="flex gap-3">
-          <Button variant="outline" size="sm" onClick={() => navigate("/")}>
-            Dashboard
-          </Button>
-          <Button variant="ghost" onClick={onLogout}>
-            Logout
-          </Button>
-        </div>
-      </header>
+      <UnifiedHeader
+        title="Cloudflare Zone"
+        subtitle={zone ? `${zone.name} · Account: ${zone.account_name || "Unknown"}` : undefined}
+        showBackButton={true}
+        onLogout={onLogout}
+        user={user}
+      />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
         {zone && (
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Zone Overview</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePurgeCache}
+                disabled={recordLoading}
+                className="text-orange-600 hover:text-orange-700"
+              >
+                Purge Cache
+              </Button>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-3">
               <div>

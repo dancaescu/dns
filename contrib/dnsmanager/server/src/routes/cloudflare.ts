@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { authenticate } from "../middleware.js";
 import { query, execute } from "../db.js";
+import { logAction } from "../auth.js";
 import {
   cloudflareCreateDnsRecord,
   cloudflareDeleteDnsRecord,
@@ -9,6 +10,7 @@ import {
   cloudflareCreateLoadBalancer,
   cloudflareUpdateLoadBalancer,
   cloudflareDeleteLoadBalancer,
+  cloudflarePurgeCache,
   cloudflareGetPoolHealth,
   cloudflareCreateZone,
   syncZone,
@@ -182,6 +184,213 @@ router.post("/zones/:id/sync", async (req, res) => {
   }
 });
 
+// Purge cache for a zone
+router.post("/zones/:id/purge-cache", async (req: any, res) => {
+  const zoneId = Number(req.params.id);
+  if (!Number.isInteger(zoneId)) {
+    return res.status(400).json({ message: "Invalid zone id" });
+  }
+
+  const ipAddress = req.socket.remoteAddress || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+
+  try {
+    // Get zone name for logging
+    const [zones] = await query<{ name: string }>(
+      "SELECT name FROM cloudflare_zones WHERE id = ?",
+      [zoneId]
+    );
+
+    if (zones.length === 0) {
+      return res.status(404).json({ message: "Zone not found" });
+    }
+
+    const zoneName = zones[0].name;
+
+    // Purge everything in the zone using Cloudflare API helper
+    const response = await cloudflarePurgeCache(zoneId);
+
+    if (response.success) {
+      await logAction(
+        req.user.id,
+        "cloudflare_cache_purge",
+        `Purged all cache for zone ${zoneName}`,
+        ipAddress,
+        userAgent,
+        "cloudflare_zone",
+        zoneId
+      );
+
+      res.json({ success: true, message: "Cache purged successfully" });
+    } else {
+      res.status(500).json({
+        message: "Failed to purge cache",
+        errors: response.errors || []
+      });
+    }
+  } catch (error: any) {
+    console.error("Purge cache error:", error);
+    res.status(500).json({
+      message: error.message || "Failed to purge cache"
+    });
+  }
+});
+
+// Copy Cloudflare zone to MyDNS (SOA/RR)
+router.post("/zones/:id/copy-to-mydns", async (req: any, res) => {
+  const zoneId = Number(req.params.id);
+  if (!Number.isInteger(zoneId)) {
+    return res.status(400).json({ message: "Invalid zone id" });
+  }
+
+  const ipAddress = req.socket.remoteAddress || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+
+  try {
+    // Get the Cloudflare zone details
+    const [zoneRows] = await query<{
+      id: number;
+      name: string;
+      cf_zone_id: string;
+    }>(
+      "SELECT id, name, cf_zone_id FROM cloudflare_zones WHERE id = ?",
+      [zoneId]
+    );
+
+    if (zoneRows.length === 0) {
+      return res.status(404).json({ message: "Cloudflare zone not found" });
+    }
+
+    const cfZone = zoneRows[0];
+    const zoneName = cfZone.name.endsWith('.') ? cfZone.name : `${cfZone.name}.`;
+
+    // Check if SOA already exists for this origin
+    const [existingSoa] = await query(
+      "SELECT id, deleted_at FROM soa WHERE origin = ?",
+      [zoneName]
+    );
+
+    if (existingSoa.length > 0 && !existingSoa[0].deleted_at) {
+      return res.status(409).json({
+        message: `SOA record for origin "${zoneName}" already exists in MyDNS`,
+        existingId: existingSoa[0].id
+      });
+    }
+
+    // Get all DNS records from Cloudflare zone
+    const [cfRecords] = await query<{
+      id: number;
+      record_type: string;
+      name: string;
+      content: string;
+      ttl: number | null;
+      priority: number | null;
+    }>(
+      "SELECT id, record_type, name, content, ttl, priority FROM cloudflare_records WHERE zone_id = ?",
+      [zoneId]
+    );
+
+    // Create SOA record
+    let soaId: number;
+    if (existingSoa.length > 0 && existingSoa[0].deleted_at) {
+      // Restore soft-deleted SOA
+      await execute(
+        `UPDATE soa SET deleted_at = NULL, ns = ?, mbox = ?, serial = 1, refresh = 28800, retry = 7200,
+         expire = 604800, minimum = 86400, ttl = 86400, active = 'Y' WHERE id = ?`,
+        [`ns1.${zoneName}`, `hostmaster.${zoneName}`, existingSoa[0].id]
+      );
+      soaId = existingSoa[0].id;
+    } else {
+      // Create new SOA record
+      const soaResult = await execute(
+        `INSERT INTO soa
+          (sys_userid, sys_groupid, user_id, sys_perm_user, sys_perm_group, sys_perm_other,
+           origin, ns, mbox, serial, refresh, retry, expire, minimum, ttl, active, xfer, lastmodified)
+         VALUES (0, 0, 0, 'riud', 'ri', 'r', ?, ?, ?, 1, 28800, 7200, 604800, 86400, 86400, 'Y', '', '')`,
+        [zoneName, `ns1.${zoneName}`, `hostmaster.${zoneName}`]
+      );
+      soaId = soaResult.insertId;
+    }
+
+    // Create RR records from Cloudflare records
+    const createdRecords: any[] = [];
+    const failedRecords: any[] = [];
+
+    for (const record of cfRecords) {
+      try {
+        // Skip SOA and NS records (SOA is created above, NS can be problematic)
+        if (record.record_type === 'SOA') continue;
+
+        // Clean up the record name
+        let rrName = record.name;
+        // Remove zone suffix if present
+        if (rrName.endsWith(`.${cfZone.name}`)) {
+          rrName = rrName.slice(0, -(cfZone.name.length + 1));
+        } else if (rrName === cfZone.name) {
+          rrName = '';
+        }
+        // Add trailing dot if not present and not empty
+        if (rrName && !rrName.endsWith('.')) {
+          rrName = `${rrName}.`;
+        }
+
+        await execute(
+          `INSERT INTO rr
+            (sys_userid, sys_groupid, user_id, sys_perm_user, sys_perm_group, sys_perm_other,
+             zone, name, type, data, aux, ttl, active, lastmodified)
+           VALUES (0, 0, 0, 'riud', 'ri', 'r', ?, ?, ?, ?, ?, ?, 'Y', '')`,
+          [
+            soaId,
+            rrName,
+            record.record_type,
+            record.content,
+            record.priority || 0,
+            record.ttl || 3600
+          ]
+        );
+
+        createdRecords.push({
+          type: record.record_type,
+          name: rrName,
+          content: record.content
+        });
+      } catch (error: any) {
+        console.error(`Failed to create RR record:`, error.message);
+        failedRecords.push({
+          type: record.record_type,
+          name: record.name,
+          error: error.message
+        });
+      }
+    }
+
+    await logAction(
+      req.user.id,
+      "cloudflare_zone_import",
+      `Imported Cloudflare zone ${cfZone.name} to MyDNS. Created ${createdRecords.length} RR records, ${failedRecords.length} failed.`,
+      ipAddress,
+      userAgent,
+      "cloudflare_zone",
+      zoneId
+    );
+
+    res.status(201).json({
+      success: true,
+      soa_id: soaId,
+      zone_name: zoneName,
+      records_created: createdRecords.length,
+      records_failed: failedRecords.length,
+      created_records: createdRecords,
+      failed_records: failedRecords
+    });
+  } catch (error: any) {
+    console.error("Copy to MyDNS error:", error);
+    res.status(500).json({
+      message: error.message || "Internal server error"
+    });
+  }
+});
+
 const recordSchema = z.object({
   type: z.string().min(1),
   name: z.string().min(1),
@@ -240,7 +449,7 @@ function normalizeRecordPayload(
   return payload;
 }
 
-router.post("/zones/:id/records", async (req, res) => {
+router.post("/zones/:id/records", async (req: any, res) => {
   const zoneId = Number(req.params.id);
   if (!Number.isInteger(zoneId)) {
     return res.status(400).json({ message: "Invalid zone id" });
@@ -251,7 +460,17 @@ router.post("/zones/:id/records", async (req, res) => {
     return res.status(400).json({ message: "Invalid payload", issues: parsed.error.issues });
   }
   const record = normalizeRecordPayload(parsed.data);
+  const ipAddress = req.socket.remoteAddress || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+
   try {
+    // Get zone name for logging
+    const [zoneRows] = await query<{ name: string }>(
+      "SELECT name FROM cloudflare_zones WHERE id = ?",
+      [zoneId]
+    );
+    const zoneName = zoneRows.length > 0 ? zoneRows[0].name : `Zone ${zoneId}`;
+
     if (syncRemote) {
       await cloudflareCreateDnsRecord(zoneId, {
         type: record.type,
@@ -284,13 +503,24 @@ router.post("/zones/:id/records", async (req, res) => {
         ],
       );
     }
+
+    await logAction(
+      req.user.id,
+      "cloudflare_record_create",
+      `Created DNS record ${record.type} ${record.name} in zone ${zoneName}`,
+      ipAddress,
+      userAgent,
+      "cloudflare_record",
+      zoneId
+    );
+
     res.status(201).json({ success: true });
   } catch (error) {
     res.status(500).json({ message: error instanceof Error ? error.message : "Failed to create record" });
   }
 });
 
-router.put("/records/:recordId", async (req, res) => {
+router.put("/records/:recordId", async (req: any, res) => {
   const recordId = Number(req.params.recordId);
   if (!Number.isInteger(recordId)) {
     return res.status(400).json({ message: "Invalid record id" });
@@ -304,6 +534,9 @@ router.put("/records/:recordId", async (req, res) => {
   if (!Object.keys(updates).length) {
     return res.status(400).json({ message: "No changes supplied" });
   }
+  const ipAddress = req.socket.remoteAddress || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+
   const [records] = await query<{
     id: number;
     zone_id: number;
@@ -325,6 +558,13 @@ router.put("/records/:recordId", async (req, res) => {
   }
   const record = records[0];
   try {
+    // Get zone name for logging
+    const [zoneRows] = await query<{ name: string }>(
+      "SELECT name FROM cloudflare_zones WHERE id = ?",
+      [record.zone_id]
+    );
+    const zoneName = zoneRows.length > 0 ? zoneRows[0].name : `Zone ${record.zone_id}`;
+
     const payload = normalizeRecordPayload(updates, {
       type: record.record_type,
       name: record.name,
@@ -365,20 +605,40 @@ router.put("/records/:recordId", async (req, res) => {
         ],
       );
     }
+
+    await logAction(
+      req.user.id,
+      "cloudflare_record_update",
+      `Updated DNS record ${payload.type} ${payload.name} in zone ${zoneName}`,
+      ipAddress,
+      userAgent,
+      "cloudflare_record",
+      recordId
+    );
+
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ message: error instanceof Error ? error.message : "Failed to update record" });
   }
 });
 
-router.delete("/records/:recordId", async (req, res) => {
+router.delete("/records/:recordId", async (req: any, res) => {
   const recordId = Number(req.params.recordId);
   if (!Number.isInteger(recordId)) {
     return res.status(400).json({ message: "Invalid record id" });
   }
   const syncRemote = req.body?.syncRemote !== false;
-  const [records] = await query<{ id: number; zone_id: number; cf_record_id: string | null }>(
-    "SELECT id, zone_id, cf_record_id FROM cloudflare_records WHERE id = ?",
+  const ipAddress = req.socket.remoteAddress || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+
+  const [records] = await query<{
+    id: number;
+    zone_id: number;
+    cf_record_id: string | null;
+    record_type: string;
+    name: string;
+  }>(
+    "SELECT id, zone_id, cf_record_id, record_type, name FROM cloudflare_records WHERE id = ?",
     [recordId],
   );
   if (!records.length) {
@@ -386,6 +646,13 @@ router.delete("/records/:recordId", async (req, res) => {
   }
   const record = records[0];
   try {
+    // Get zone name for logging
+    const [zoneRows] = await query<{ name: string }>(
+      "SELECT name FROM cloudflare_zones WHERE id = ?",
+      [record.zone_id]
+    );
+    const zoneName = zoneRows.length > 0 ? zoneRows[0].name : `Zone ${record.zone_id}`;
+
     if (syncRemote && record.cf_record_id && !record.cf_record_id.startsWith("offline-")) {
       // Delete from Cloudflare first
       await cloudflareDeleteDnsRecord(record.zone_id, record.cf_record_id);
@@ -393,6 +660,17 @@ router.delete("/records/:recordId", async (req, res) => {
     // Always delete from local DB regardless of sync mode
     // This prevents race conditions with Cloudflare API propagation
     await execute("DELETE FROM cloudflare_records WHERE id = ?", [recordId]);
+
+    await logAction(
+      req.user.id,
+      "cloudflare_record_delete",
+      `Deleted DNS record ${record.record_type} ${record.name} from zone ${zoneName}`,
+      ipAddress,
+      userAgent,
+      "cloudflare_record",
+      recordId
+    );
+
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ message: error instanceof Error ? error.message : "Failed to delete record" });

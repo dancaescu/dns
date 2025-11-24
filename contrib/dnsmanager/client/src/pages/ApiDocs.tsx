@@ -1,16 +1,25 @@
 import React from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { UnifiedHeader } from "../components/UnifiedHeader";
 
-export default function ApiDocs() {
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  role: "superadmin" | "account_admin" | "user";
+}
+
+export default function ApiDocs({ onLogout, user }: { onLogout: () => void; user: User | null }) {
   return (
-    <div className="container mx-auto py-8 max-w-6xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">API Documentation</h1>
-        <p className="text-muted-foreground">
-          Complete reference for the DNS Manager Public API v1
-        </p>
-      </div>
+    <div className="min-h-screen bg-muted/30">
+      <UnifiedHeader
+        title="API Documentation"
+        subtitle="Complete reference for the DNS Manager Public API v1"
+        onLogout={onLogout}
+        user={user}
+      />
+      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
 
       {/* Authentication */}
       <Card className="mb-8">
@@ -279,6 +288,139 @@ public class CreateZone {
             </Tabs>
           </div>
 
+          {/* Get Zone */}
+          <div>
+            <h3 className="text-lg font-semibold mb-2">Get Zone Details</h3>
+            <div className="mb-3">
+              <span className="font-mono bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">GET</span>
+              <span className="ml-2 font-mono text-sm">/api/v1/zones/:id</span>
+              <span className="ml-3 text-sm text-muted-foreground">Required scope: zones:read</span>
+            </div>
+
+            <Tabs defaultValue="curl" className="w-full">
+              <TabsList className="grid w-full grid-cols-6">
+                <TabsTrigger value="curl">cURL</TabsTrigger>
+                <TabsTrigger value="php">PHP</TabsTrigger>
+                <TabsTrigger value="python">Python</TabsTrigger>
+                <TabsTrigger value="nodejs">Node.js</TabsTrigger>
+                <TabsTrigger value="javascript">JavaScript</TabsTrigger>
+                <TabsTrigger value="java">Java</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="curl">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`curl -X GET http://localhost:4000/api/v1/zones/1 \\
+  -H "Authorization: Bearer dnsm_your_token_here"`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="php">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`<?php
+$token = 'dnsm_your_token_here';
+$url = 'http://localhost:4000/api/v1/zones/1';
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Authorization: Bearer ' . $token
+]);
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+$result = json_decode($response, true);
+print_r($result);
+?>`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="python">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`import requests
+
+token = 'dnsm_your_token_here'
+url = 'http://localhost:4000/api/v1/zones/1'
+
+headers = {
+    'Authorization': f'Bearer {token}'
+}
+
+response = requests.get(url, headers=headers)
+result = response.json()
+print(result)`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="nodejs">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`const axios = require('axios');
+
+const token = 'dnsm_your_token_here';
+const url = 'http://localhost:4000/api/v1/zones/1';
+
+axios.get(url, {
+  headers: {
+    'Authorization': \`Bearer \${token}\`
+  }
+})
+.then(response => {
+  console.log(response.data);
+})
+.catch(error => {
+  console.error('Error:', error.response?.data || error.message);
+});`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="javascript">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`const token = 'dnsm_your_token_here';
+const url = 'http://localhost:4000/api/v1/zones/1';
+
+fetch(url, {
+  headers: {
+    'Authorization': \`Bearer \${token}\`
+  }
+})
+.then(response => response.json())
+.then(result => {
+  console.log(result);
+})
+.catch(error => {
+  console.error('Error:', error);
+});`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="java">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`import java.net.http.*;
+import java.net.URI;
+
+public class GetZone {
+    public static void main(String[] args) throws Exception {
+        String token = "dnsm_your_token_here";
+        String url = "http://localhost:4000/api/v1/zones/1";
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Authorization", "Bearer " + token)
+            .GET()
+            .build();
+
+        HttpResponse<String> response = client.send(request,
+            HttpResponse.BodyHandlers.ofString());
+
+        System.out.println(response.body());
+    }
+}`}
+                </pre>
+              </TabsContent>
+            </Tabs>
+          </div>
+
           {/* List Zones */}
           <div>
             <h3 className="text-lg font-semibold mb-2">List Zones</h3>
@@ -423,6 +565,139 @@ public class ListZones {
               </TabsContent>
             </Tabs>
           </div>
+
+          {/* List Zone Records */}
+          <div>
+            <h3 className="text-lg font-semibold mb-2">List Zone DNS Records</h3>
+            <div className="mb-3">
+              <span className="font-mono bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">GET</span>
+              <span className="ml-2 font-mono text-sm">/api/v1/zones/:zoneId/records</span>
+              <span className="ml-3 text-sm text-muted-foreground">Required scope: records:read</span>
+            </div>
+
+            <Tabs defaultValue="curl" className="w-full">
+              <TabsList className="grid w-full grid-cols-6">
+                <TabsTrigger value="curl">cURL</TabsTrigger>
+                <TabsTrigger value="php">PHP</TabsTrigger>
+                <TabsTrigger value="python">Python</TabsTrigger>
+                <TabsTrigger value="nodejs">Node.js</TabsTrigger>
+                <TabsTrigger value="javascript">JavaScript</TabsTrigger>
+                <TabsTrigger value="java">Java</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="curl">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`curl -X GET http://localhost:4000/api/v1/zones/1/records \\
+  -H "Authorization: Bearer dnsm_your_token_here"`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="php">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`<?php
+$token = 'dnsm_your_token_here';
+$url = 'http://localhost:4000/api/v1/zones/1/records';
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Authorization: Bearer ' . $token
+]);
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+$result = json_decode($response, true);
+print_r($result);
+?>`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="python">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`import requests
+
+token = 'dnsm_your_token_here'
+url = 'http://localhost:4000/api/v1/zones/1/records'
+
+headers = {
+    'Authorization': f'Bearer {token}'
+}
+
+response = requests.get(url, headers=headers)
+result = response.json()
+print(result)`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="nodejs">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`const axios = require('axios');
+
+const token = 'dnsm_your_token_here';
+const url = 'http://localhost:4000/api/v1/zones/1/records';
+
+axios.get(url, {
+  headers: {
+    'Authorization': \`Bearer \${token}\`
+  }
+})
+.then(response => {
+  console.log(response.data);
+})
+.catch(error => {
+  console.error('Error:', error.response?.data || error.message);
+});`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="javascript">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`const token = 'dnsm_your_token_here';
+const url = 'http://localhost:4000/api/v1/zones/1/records';
+
+fetch(url, {
+  headers: {
+    'Authorization': \`Bearer \${token}\`
+  }
+})
+.then(response => response.json())
+.then(result => {
+  console.log(result);
+})
+.catch(error => {
+  console.error('Error:', error);
+});`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="java">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`import java.net.http.*;
+import java.net.URI;
+
+public class ListZoneRecords {
+    public static void main(String[] args) throws Exception {
+        String token = "dnsm_your_token_here";
+        String url = "http://localhost:4000/api/v1/zones/1/records";
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Authorization", "Bearer " + token)
+            .GET()
+            .build();
+
+        HttpResponse<String> response = client.send(request,
+            HttpResponse.BodyHandlers.ofString());
+
+        System.out.println(response.body());
+    }
+}`}
+                </pre>
+              </TabsContent>
+            </Tabs>
+          </div>
         </CardContent>
       </Card>
 
@@ -433,6 +708,153 @@ public class ListZones {
           <CardDescription>Manage Start of Authority records</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* List SOA */}
+          <div>
+            <h3 className="text-lg font-semibold mb-2">List SOA Records</h3>
+            <div className="mb-3">
+              <span className="font-mono bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">GET</span>
+              <span className="ml-2 font-mono text-sm">/api/v1/soa</span>
+              <span className="ml-3 text-sm text-muted-foreground">Required scope: soa:read</span>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              Query parameters: <code>limit</code> (default: 100, max: 1000), <code>offset</code> (default: 0), <code>search</code> (optional)
+            </p>
+
+            <Tabs defaultValue="curl" className="w-full">
+              <TabsList className="grid w-full grid-cols-6">
+                <TabsTrigger value="curl">cURL</TabsTrigger>
+                <TabsTrigger value="php">PHP</TabsTrigger>
+                <TabsTrigger value="python">Python</TabsTrigger>
+                <TabsTrigger value="nodejs">Node.js</TabsTrigger>
+                <TabsTrigger value="javascript">JavaScript</TabsTrigger>
+                <TabsTrigger value="java">Java</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="curl">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`curl -X GET "http://localhost:4000/api/v1/soa?limit=50&offset=0&search=example" \\
+  -H "Authorization: Bearer dnsm_your_token_here"`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="php">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`<?php
+$token = 'dnsm_your_token_here';
+$url = 'http://localhost:4000/api/v1/soa?limit=50&offset=0&search=example';
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Authorization: Bearer ' . $token
+]);
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+$result = json_decode($response, true);
+print_r($result);
+?>`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="python">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`import requests
+
+token = 'dnsm_your_token_here'
+url = 'http://localhost:4000/api/v1/soa'
+
+headers = {
+    'Authorization': f'Bearer {token}'
+}
+
+params = {
+    'limit': 50,
+    'offset': 0,
+    'search': 'example'
+}
+
+response = requests.get(url, headers=headers, params=params)
+result = response.json()
+print(result)`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="nodejs">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`const axios = require('axios');
+
+const token = 'dnsm_your_token_here';
+const url = 'http://localhost:4000/api/v1/soa';
+
+axios.get(url, {
+  headers: {
+    'Authorization': \`Bearer \${token}\`
+  },
+  params: {
+    limit: 50,
+    offset: 0,
+    search: 'example'
+  }
+})
+.then(response => {
+  console.log(response.data);
+})
+.catch(error => {
+  console.error('Error:', error.response?.data || error.message);
+});`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="javascript">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`const token = 'dnsm_your_token_here';
+const url = 'http://localhost:4000/api/v1/soa?limit=50&offset=0&search=example';
+
+fetch(url, {
+  headers: {
+    'Authorization': \`Bearer \${token}\`
+  }
+})
+.then(response => response.json())
+.then(result => {
+  console.log(result);
+})
+.catch(error => {
+  console.error('Error:', error);
+});`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="java">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`import java.net.http.*;
+import java.net.URI;
+
+public class ListSOA {
+    public static void main(String[] args) throws Exception {
+        String token = "dnsm_your_token_here";
+        String url = "http://localhost:4000/api/v1/soa?limit=50&offset=0&search=example";
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Authorization", "Bearer " + token)
+            .GET()
+            .build();
+
+        HttpResponse<String> response = client.send(request,
+            HttpResponse.BodyHandlers.ofString());
+
+        System.out.println(response.body());
+    }
+}`}
+                </pre>
+              </TabsContent>
+            </Tabs>
+          </div>
+
           {/* Create SOA */}
           <div>
             <h3 className="text-lg font-semibold mb-2">Create SOA Record</h3>
@@ -1312,6 +1734,314 @@ public class ListRR {
               </TabsContent>
             </Tabs>
           </div>
+
+          {/* Update RR */}
+          <div>
+            <h3 className="text-lg font-semibold mb-2">Update Resource Record</h3>
+            <div className="mb-3">
+              <span className="font-mono bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-sm">PUT</span>
+              <span className="ml-2 font-mono text-sm">/api/v1/rr/:id</span>
+              <span className="ml-3 text-sm text-muted-foreground">Required scope: rr:write</span>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              You can update individual fields - only include the fields you want to change.
+            </p>
+
+            <Tabs defaultValue="curl" className="w-full">
+              <TabsList className="grid w-full grid-cols-6">
+                <TabsTrigger value="curl">cURL</TabsTrigger>
+                <TabsTrigger value="php">PHP</TabsTrigger>
+                <TabsTrigger value="python">Python</TabsTrigger>
+                <TabsTrigger value="nodejs">Node.js</TabsTrigger>
+                <TabsTrigger value="javascript">JavaScript</TabsTrigger>
+                <TabsTrigger value="java">Java</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="curl">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`curl -X PUT http://localhost:4000/api/v1/rr/1 \\
+  -H "Authorization: Bearer dnsm_your_token_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "data": "192.0.2.2",
+    "ttl": 7200
+  }'`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="php">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`<?php
+$token = 'dnsm_your_token_here';
+$url = 'http://localhost:4000/api/v1/rr/1';
+
+$data = [
+    'data' => '192.0.2.2',
+    'ttl' => 7200
+];
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Authorization: Bearer ' . $token,
+    'Content-Type: application/json'
+]);
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+$result = json_decode($response, true);
+print_r($result);
+?>`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="python">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`import requests
+
+token = 'dnsm_your_token_here'
+url = 'http://localhost:4000/api/v1/rr/1'
+
+headers = {
+    'Authorization': f'Bearer {token}',
+    'Content-Type': 'application/json'
+}
+
+data = {
+    'data': '192.0.2.2',
+    'ttl': 7200
+}
+
+response = requests.put(url, json=data, headers=headers)
+result = response.json()
+print(result)`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="nodejs">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`const axios = require('axios');
+
+const token = 'dnsm_your_token_here';
+const url = 'http://localhost:4000/api/v1/rr/1';
+
+const data = {
+  data: '192.0.2.2',
+  ttl: 7200
+};
+
+axios.put(url, data, {
+  headers: {
+    'Authorization': \`Bearer \${token}\`,
+    'Content-Type': 'application/json'
+  }
+})
+.then(response => {
+  console.log(response.data);
+})
+.catch(error => {
+  console.error('Error:', error.response?.data || error.message);
+});`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="javascript">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`const token = 'dnsm_your_token_here';
+const url = 'http://localhost:4000/api/v1/rr/1';
+
+const data = {
+  data: '192.0.2.2',
+  ttl: 7200
+};
+
+fetch(url, {
+  method: 'PUT',
+  headers: {
+    'Authorization': \`Bearer \${token}\`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(data)
+})
+.then(response => response.json())
+.then(result => {
+  console.log(result);
+})
+.catch(error => {
+  console.error('Error:', error);
+});`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="java">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`import java.net.http.*;
+import java.net.URI;
+import org.json.JSONObject;
+
+public class UpdateRR {
+    public static void main(String[] args) throws Exception {
+        String token = "dnsm_your_token_here";
+        String url = "http://localhost:4000/api/v1/rr/1";
+
+        JSONObject data = new JSONObject();
+        data.put("data", "192.0.2.2");
+        data.put("ttl", 7200);
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Authorization", "Bearer " + token)
+            .header("Content-Type", "application/json")
+            .PUT(HttpRequest.BodyPublishers.ofString(data.toString()))
+            .build();
+
+        HttpResponse<String> response = client.send(request,
+            HttpResponse.BodyHandlers.ofString());
+
+        System.out.println(response.body());
+    }
+}`}
+                </pre>
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          {/* Delete RR */}
+          <div>
+            <h3 className="text-lg font-semibold mb-2">Delete Resource Record</h3>
+            <div className="mb-3">
+              <span className="font-mono bg-red-100 text-red-800 px-2 py-1 rounded text-sm">DELETE</span>
+              <span className="ml-2 font-mono text-sm">/api/v1/rr/:id</span>
+              <span className="ml-3 text-sm text-muted-foreground">Required scope: rr:write</span>
+            </div>
+
+            <Tabs defaultValue="curl" className="w-full">
+              <TabsList className="grid w-full grid-cols-6">
+                <TabsTrigger value="curl">cURL</TabsTrigger>
+                <TabsTrigger value="php">PHP</TabsTrigger>
+                <TabsTrigger value="python">Python</TabsTrigger>
+                <TabsTrigger value="nodejs">Node.js</TabsTrigger>
+                <TabsTrigger value="javascript">JavaScript</TabsTrigger>
+                <TabsTrigger value="java">Java</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="curl">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`curl -X DELETE http://localhost:4000/api/v1/rr/1 \\
+  -H "Authorization: Bearer dnsm_your_token_here"`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="php">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`<?php
+$token = 'dnsm_your_token_here';
+$url = 'http://localhost:4000/api/v1/rr/1';
+
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Authorization: Bearer ' . $token
+]);
+
+$response = curl_exec($ch);
+$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+
+echo "HTTP Status: " . $httpCode; // Should be 204
+?>`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="python">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`import requests
+
+token = 'dnsm_your_token_here'
+url = 'http://localhost:4000/api/v1/rr/1'
+
+headers = {
+    'Authorization': f'Bearer {token}'
+}
+
+response = requests.delete(url, headers=headers)
+print(f"HTTP Status: {response.status_code}")  # Should be 204`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="nodejs">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`const axios = require('axios');
+
+const token = 'dnsm_your_token_here';
+const url = 'http://localhost:4000/api/v1/rr/1';
+
+axios.delete(url, {
+  headers: {
+    'Authorization': \`Bearer \${token}\`
+  }
+})
+.then(response => {
+  console.log(\`HTTP Status: \${response.status}\`); // Should be 204
+})
+.catch(error => {
+  console.error('Error:', error.response?.data || error.message);
+});`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="javascript">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`const token = 'dnsm_your_token_here';
+const url = 'http://localhost:4000/api/v1/rr/1';
+
+fetch(url, {
+  method: 'DELETE',
+  headers: {
+    'Authorization': \`Bearer \${token}\`
+  }
+})
+.then(response => {
+  console.log(\`HTTP Status: \${response.status}\`); // Should be 204
+})
+.catch(error => {
+  console.error('Error:', error);
+});`}
+                </pre>
+              </TabsContent>
+
+              <TabsContent value="java">
+                <pre className="bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto text-xs">
+{`import java.net.http.*;
+import java.net.URI;
+
+public class DeleteRR {
+    public static void main(String[] args) throws Exception {
+        String token = "dnsm_your_token_here";
+        String url = "http://localhost:4000/api/v1/rr/1";
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Authorization", "Bearer " + token)
+            .DELETE()
+            .build();
+
+        HttpResponse<String> response = client.send(request,
+            HttpResponse.BodyHandlers.ofString());
+
+        System.out.println("HTTP Status: " + response.statusCode()); // Should be 204
+    }
+}`}
+                </pre>
+              </TabsContent>
+            </Tabs>
+          </div>
         </CardContent>
       </Card>
 
@@ -1380,6 +2110,7 @@ public class ListRR {
           </ul>
         </CardContent>
       </Card>
+      </main>
     </div>
   );
 }
