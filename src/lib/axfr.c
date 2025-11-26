@@ -9,6 +9,7 @@
 #include "mydns.h"
 #include "mydnsutil.h"
 #include "axfr.h"
+#include "memzone.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -16,6 +17,9 @@
 #include <poll.h>
 #include <errno.h>
 #include <string.h>
+
+/* Global memzone context (for zone transfer updates) */
+extern memzone_ctx_t *Memzone;
 
 /* DNS header structure */
 typedef struct {
@@ -638,11 +642,30 @@ int axfr_transfer_zone(SQL *db, axfr_zone_t *zone, axfr_result_t *result) {
         goto cleanup;
     }
 
-    /* Update database */
-    if (axfr_update_database(db, zone, records, result) < 0) {
-        result->status = AXFR_DATABASE_ERROR;
-        result->error_message = strdup("Failed to update database");
-        goto cleanup;
+    /* Update memzone (if available) */
+    if (Memzone) {
+        Notice(_("Updating memzone for zone %s"), zone->zone_name);
+        if (axfr_update_memzone(Memzone, zone, records, result) < 0) {
+            Warnx(_("Failed to update memzone for zone %s"), zone->zone_name);
+            /* Continue anyway - try database update */
+        }
+    }
+
+    /* Update database (if db is provided) */
+    if (db) {
+        Notice(_("Updating database for zone %s"), zone->zone_name);
+        /* Reset records_added counter for database update */
+        int memzone_records = result->records_added;
+        result->records_added = 0;
+
+        if (axfr_update_database(db, zone, records, result) < 0) {
+            result->status = AXFR_DATABASE_ERROR;
+            result->error_message = strdup("Failed to update database");
+            goto cleanup;
+        }
+
+        /* Restore total (memzone + database) */
+        result->records_added += memzone_records;
     }
 
     result->status = AXFR_SUCCESS;
@@ -704,6 +727,92 @@ int axfr_update_database(SQL *db, axfr_zone_t *zone, axfr_record_t *records, axf
     /* Commit transaction */
     sql_query(db, "COMMIT", strlen("COMMIT"));
 
+    return 0;
+}
+
+/**
+ * Update memzone with transferred zone data
+ */
+int axfr_update_memzone(memzone_ctx_t *ctx, axfr_zone_t *zone, axfr_record_t *records, axfr_result_t *result) {
+    axfr_record_t *rec;
+
+    if (!ctx || !zone || !records || !result) {
+        return -1;
+    }
+
+    /* Create mem_soa_t from axfr_zone_t */
+    mem_soa_t soa;
+    memset(&soa, 0, sizeof(soa));
+
+    soa.zone_id = zone->zone_id;
+    strncpy(soa.origin, zone->zone_name, MEMZONE_NAME_MAX - 1);
+
+    /* Parse SOA record from records list (first record should be SOA) */
+    if (records && strcmp(records->type, "SOA") == 0) {
+        /* Parse SOA data: "ns mbox serial refresh retry expire minimum" */
+        char soa_data[1024];
+        strncpy(soa_data, records->data, sizeof(soa_data) - 1);
+
+        char *tok = strtok(soa_data, " ");
+        if (tok) strncpy(soa.ns, tok, MEMZONE_NAME_MAX - 1);
+
+        tok = strtok(NULL, " ");
+        if (tok) strncpy(soa.mbox, tok, MEMZONE_NAME_MAX - 1);
+
+        tok = strtok(NULL, " ");
+        if (tok) soa.serial = atoi(tok);
+
+        tok = strtok(NULL, " ");
+        if (tok) soa.refresh = atoi(tok);
+
+        tok = strtok(NULL, " ");
+        if (tok) soa.retry = atoi(tok);
+
+        tok = strtok(NULL, " ");
+        if (tok) soa.expire = atoi(tok);
+
+        tok = strtok(NULL, " ");
+        if (tok) soa.minimum = atoi(tok);
+
+        soa.ttl = records->ttl;
+    }
+
+    soa.active = 1;
+    soa.updated = time(NULL);
+
+    /* Add or update zone in memzone */
+    if (memzone_add_zone(ctx, &soa) < 0) {
+        Warnx(_("Failed to add zone %s to memzone"), zone->zone_name);
+        return -1;
+    }
+
+    /* Delete all existing records for this zone */
+    memzone_delete_all_rr(ctx, zone->zone_id);
+
+    /* Add new records to memzone */
+    for (rec = records; rec != NULL; rec = rec->next) {
+        /* Skip SOA record (already processed) */
+        if (strcmp(rec->type, "SOA") == 0) {
+            continue;
+        }
+
+        mem_rr_t rr;
+        memset(&rr, 0, sizeof(rr));
+
+        rr.id = 0;  /* Will be assigned by memzone */
+        rr.zone_id = zone->zone_id;
+        strncpy(rr.name, rec->name, MEMZONE_NAME_MAX - 1);
+        rr.type = mydns_rr_get_type(rec->type);
+        strncpy(rr.data, rec->data, MEMZONE_DATA_MAX - 1);
+        rr.aux = rec->aux;
+        rr.ttl = rec->ttl;
+
+        if (memzone_add_rr(ctx, zone->zone_id, &rr) == 0) {
+            result->records_added++;
+        }
+    }
+
+    Notice(_("Updated memzone for zone %s: %d records"), zone->zone_name, result->records_added);
     return 0;
 }
 

@@ -19,11 +19,13 @@
 #include "mydns.h"
 #include "mydnsutil.h"
 #include "../lib/axfr.h"
+#include "../lib/memzone.h"
 #include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 /* Global variables */
+memzone_ctx_t *Memzone = NULL;  /* In-memory zone storage */
 static int running = 1;
 static int daemon_mode = 0;
 static int foreground = 0;
@@ -279,11 +281,23 @@ int main(int argc, char **argv) {
         Err(_("Failed to initialize AXFR module"));
     }
 
+    /* Initialize in-memory zone storage (create new shared memory) */
+    Notice(_("Initializing memzone..."));
+    Memzone = memzone_init(1);  /* 1 = create new shared memory */
+    if (!Memzone) {
+        Err(_("Failed to initialize memzone - cannot run as AXFR transfer daemon"));
+    }
+    Notice(_("Memzone initialized successfully"));
+
     /* Connect to database */
     db = sql_open(SQL_ZERO_IS_NULL);
     if (!db) {
         Err(_("Failed to connect to database"));
     }
+
+    /* Load ACL rules from database into memzone */
+    int acl_count = memzone_load_acl_from_db(Memzone, db);
+    Notice(_("Loaded %d ACL rules into memzone"), acl_count);
 
     Notice(_("mydns-xfer starting (version %s)"), PACKAGE_VERSION);
     if (daemon_mode) {
@@ -306,6 +320,12 @@ int main(int argc, char **argv) {
 
     /* Cleanup */
     Notice(_("mydns-xfer shutting down"));
+
+    if (Memzone) {
+        memzone_free(Memzone);
+        Memzone = NULL;
+    }
+
     axfr_free();
     sql_close(db);
 
