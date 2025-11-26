@@ -27,6 +27,7 @@ typedef struct _named_queue *QUEUEP;
 #include "header.h"
 #include "mydns.h"
 #include "geoip.h"
+#include "memzone.h"
 #include "task.h"
 #include "cache.h"
 
@@ -120,6 +121,7 @@ extern int	max_used_fd;
 extern CACHE	*Cache;				/* Zone cache */
 extern time_t	current_time;			/* Current time */
 extern GEOIP_CTX	*GeoIP;			/* GeoIP context */
+extern memzone_ctx_t	*Memzone;		/* In-memory zone storage for AXFR slaves */
 
 #if ALIAS_ENABLED
 /* alias.c */

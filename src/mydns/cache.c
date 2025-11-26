@@ -535,9 +535,36 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
     }
   }
 
-  /* Result not found in cache; Get answer from database */
+  /* Result not found in cache; Get answer from database OR memzone */
   if (type == DNS_QTYPE_SOA) {
-    /* Try to load from database */
+    /* Try to load from memzone first (for slave zones) */
+    if (Memzone) {
+      zone_entry_t *mem_zone = memzone_find_zone_by_name(Memzone, name);
+      if (mem_zone && mem_zone->soa) {
+        /* Found in memory - convert to MYDNS_SOA structure */
+        soa = ALLOCATE(sizeof(MYDNS_SOA), MYDNS_SOA);
+        if (soa) {
+          soa->id = mem_zone->soa->zone_id;
+          strncpy(soa->origin, mem_zone->soa->origin, sizeof(soa->origin) - 1);
+          strncpy(soa->ns, mem_zone->soa->ns, sizeof(soa->ns) - 1);
+          strncpy(soa->mbox, mem_zone->soa->mbox, sizeof(soa->mbox) - 1);
+          soa->serial = mem_zone->soa->serial;
+          soa->refresh = mem_zone->soa->refresh;
+          soa->retry = mem_zone->soa->retry;
+          soa->expire = mem_zone->soa->expire;
+          soa->minimum = mem_zone->soa->minimum;
+          soa->ttl = mem_zone->soa->ttl;
+          soa->active = mem_zone->soa->active ? SQL_ACTIVE : SQL_INACTIVE;
+        }
+#if DEBUG_ENABLED && DEBUG_CACHE
+        DebugX("cache", 1, _("%s: Found SOA in memzone: %s (ID %u)"), desctask(t), name, soa->id);
+#endif
+        /* Jump to caching logic */
+        goto cache_soa;
+      }
+    }
+
+    /* Not in memzone, try to load from database */
 #if DEBUG_ENABLED && DEBUG_SQL_QUERIES
     DebugX("cache", 1, _("%s: SQL query: table \"%s\", origin=\"%s\""), desctask(t), mydns_soa_table_name, name);
 #endif
@@ -549,6 +576,8 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
 	return (NULL);
       }
     }
+
+cache_soa:
 
 #ifdef DN_COLUMN_NAMES
     if (soa && dn_default_ns)
@@ -566,6 +595,48 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
     if (soa && !soa->ttl)
       return ((void *)soa);
   } else {
+    /* Try to load from memzone first (for slave zones) */
+    if (Memzone && memzone_zone_exists(Memzone, zone)) {
+      /* Zone exists in memzone, query it */
+      mem_rr_t *results[256];  /* Max 256 results */
+      int count = memzone_query(Memzone, zone, name, type, results, 256);
+
+      if (count > 0) {
+        /* Found records in memory - convert to MYDNS_RR linked list */
+        MYDNS_RR *first_rr = NULL, *prev_rr = NULL;
+
+        for (int i = 0; i < count; i++) {
+          MYDNS_RR *new_rr = ALLOCATE(sizeof(MYDNS_RR), MYDNS_RR);
+          if (new_rr) {
+            new_rr->id = results[i]->id;
+            new_rr->zone = results[i]->zone_id;
+            strncpy(new_rr->name, results[i]->name, sizeof(new_rr->name) - 1);
+            new_rr->type = results[i]->type;
+            strncpy(new_rr->data, results[i]->data, sizeof(new_rr->data) - 1);
+            new_rr->aux = results[i]->aux;
+            new_rr->ttl = results[i]->ttl;
+            new_rr->next = NULL;
+
+            if (!first_rr) {
+              first_rr = new_rr;
+            } else if (prev_rr) {
+              prev_rr->next = new_rr;
+            }
+            prev_rr = new_rr;
+          }
+        }
+
+        rr = first_rr;
+#if DEBUG_ENABLED && DEBUG_CACHE
+        DebugX("cache", 1, _("%s: Found %d RR(s) in memzone: zone=%u type=%s name=%s"),
+               desctask(t), count, zone, mydns_qtype_str(type), name);
+#endif
+        /* Jump to caching logic */
+        goto cache_rr;
+      }
+    }
+
+    /* Not in memzone, try to load from database */
 #if DEBUG_ENABLED && DEBUG_SQL_QUERIES
     DebugX("cache", 1, _("%s: SQL query: table \"%s\", zone=%u,type=\"%s\",name=\"%s\""),
 	   desctask(t), mydns_rr_table_name, zone, mydns_qtype_str(type), name);
@@ -580,6 +651,8 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
 	return (NULL);
       }
     }
+
+cache_rr:
 
 #ifdef DN_COLUMN_NAMES
     /* DN database has no TTL - use parent's */

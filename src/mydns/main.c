@@ -26,6 +26,7 @@ QUEUE 		*TaskArray[PERIODIC_TASK+1][LOW_PRIORITY_TASK+1];
 struct timeval	current_tick;			/* Current micro-second time */
 time_t		current_time;			/* Current time */
 GEOIP_CTX	*GeoIP = NULL;			/* GeoIP context */
+memzone_ctx_t	*Memzone = NULL;		/* In-memory zone storage for AXFR slaves */
 
 static int	servers = 0;			/* Number of server processes to run */
 ARRAY		*Servers = NULL;
@@ -630,6 +631,12 @@ named_shutdown(int signo) {
   if (GeoIP) {
     geoip_free(GeoIP);
     GeoIP = NULL;
+  }
+
+  /* Free Memzone context */
+  if (Memzone) {
+    memzone_free(Memzone);
+    Memzone = NULL;
   }
 
   /* Close listening FDs - do not sockclose these are shared with other processes */
@@ -1595,6 +1602,17 @@ main(int argc, char **argv)
     Warnx(_("GeoIP initialization failed - geographic features disabled"));
   } else {
     Notice(_("GeoIP initialized successfully"));
+  }
+
+  /* Initialize in-memory zone storage (attach to existing shared memory created by mydns-xfer) */
+  Memzone = memzone_init(0);  /* 0 = attach to existing, 1 = create new */
+  if (!Memzone) {
+    Warnx(_("Memzone initialization failed - AXFR slave zones will not work"));
+  } else {
+    /* Load ACL rules from database into memory */
+    int acl_count = memzone_load_acl_from_db(Memzone, sql);
+    Notice(_("Memzone initialized successfully: %u zones, %u records, %d ACL rules"),
+           Memzone->zone_count, Memzone->record_count, acl_count);
   }
 
   for (i = NORMAL_TASK; i <= PERIODIC_TASK; i++) {
