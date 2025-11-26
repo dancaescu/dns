@@ -1,0 +1,5 @@
+# Python dependencies for Geographic DNS Sensor
+# Install with: pip3 install -r requirements.txt
+
+dnspython>=2.4.0
+mysql-connector-python>=8.0.33

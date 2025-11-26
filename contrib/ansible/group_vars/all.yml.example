@@ -1,0 +1,174 @@
+# MyDNS-NG Ansible Variables
+# Copy this file to group_vars/all.yml and customize
+
+---
+# =============================================================================
+# MySQL Database Configuration
+# =============================================================================
+mysql_host: "db.example.com"
+mysql_port: 3306
+mysql_database: "did"
+mysql_user: "mydns"
+mysql_password: "CHANGE_ME_SECURE_PASSWORD"
+
+# Optional: MySQL SSL configuration
+mysql_ssl_enabled: false
+# mysql_ssl_ca: "/path/to/ca.pem"
+# mysql_ssl_cert: "/path/to/client-cert.pem"
+# mysql_ssl_key: "/path/to/client-key.pem"
+
+# =============================================================================
+# MyDNS Server Configuration
+# =============================================================================
+mydns_version: "1.3.0"
+mydns_port: 53
+mydns_user: "mydns"
+mydns_group: "mydns"
+
+# Source directory (where this repo is cloned)
+mydns_source_dir: "/scripts/mydns-ng-master"
+
+# GeoIP Configuration
+geoip_enabled: true
+geoip_database_url: "https://github.com/maxmind/geoip-api-c/releases/download/v1.6.12/GeoIP.dat.gz"
+geoip_database_path: "/usr/share/GeoIP/GeoIP.dat"
+
+# MyDNS Runtime Configuration
+mydns_allow_axfr: "no"
+mydns_allow_tcp: "yes"
+mydns_allow_update: "no"
+mydns_recursive: "no"
+mydns_cache_size: "1024"
+mydns_cache_expire: "60"
+mydns_timeout: "30"
+
+# =============================================================================
+# Sensor Configuration
+# =============================================================================
+api_url: "https://dns.example.com"
+api_token: "CHANGE_ME_YOUR_API_TOKEN_HERE"
+
+# Sensor location code (na, eu, apac, sa, af, oc)
+# Can be overridden per-host in inventory
+sensor_location: "na"
+
+# Sensor run interval in minutes
+sensor_interval: 60
+
+# Sensor user
+sensor_user: "sensor"
+sensor_group: "sensor"
+sensor_home: "/opt/sensor"
+
+# Python version
+python_version: "3"
+
+# =============================================================================
+# DNS Manager Web UI Configuration
+# =============================================================================
+
+# Backend API Configuration
+api_port: 4000
+dnsmanager_origin: "https://dns.example.com"
+
+# JWT Secret (REQUIRED - generate with: openssl rand -base64 32)
+jwt_secret: "CHANGE_ME_GENERATE_WITH_OPENSSL_RAND"
+
+# Application paths
+app_source_dir: "/scripts/mydns-ng-master/contrib/dnsmanager"
+app_deploy_dir: "/opt/dnsmanager"
+app_user: "dnsmanager"
+app_group: "dnsmanager"
+
+# Node.js Configuration
+nodejs_version: "20"  # LTS version
+
+# PM2 Configuration
+pm2_app_name: "dnsmanager-server"
+pm2_instances: 1  # Set to 0 for cluster mode (one per CPU)
+pm2_max_memory_restart: "500M"
+
+# =============================================================================
+# Nginx Configuration (Optional)
+# =============================================================================
+install_nginx: true
+domain_name: "dns.example.com"
+
+# SSL Configuration
+ssl_enabled: true
+ssl_cert_path: "/etc/ssl/certs/{{ domain_name }}.crt"
+ssl_key_path: "/etc/ssl/private/{{ domain_name }}.key"
+
+# Use Let's Encrypt (alternative to providing your own certs)
+use_letsencrypt: false
+letsencrypt_email: "admin@example.com"
+
+# Nginx settings
+nginx_client_max_body_size: "10M"
+nginx_proxy_timeout: "60s"
+
+# =============================================================================
+# Security Configuration
+# =============================================================================
+
+# Firewall settings
+configure_firewall: true
+allowed_ssh_ips:
+  - "0.0.0.0/0"  # WARNING: Allow from anywhere - restrict in production!
+
+# Fail2ban
+install_fail2ban: true
+fail2ban_maxretry: 5
+fail2ban_bantime: 3600
+
+# =============================================================================
+# System Configuration
+# =============================================================================
+
+# Timezone
+system_timezone: "UTC"
+
+# NTP servers
+ntp_servers:
+  - "0.pool.ntp.org"
+  - "1.pool.ntp.org"
+  - "2.pool.ntp.org"
+  - "3.pool.ntp.org"
+
+# Package updates
+update_packages: true
+upgrade_packages: false  # Set to true to run full upgrade
+
+# =============================================================================
+# Monitoring Configuration (Optional)
+# =============================================================================
+
+# Enable monitoring checks
+install_monitoring: false
+
+# Monit configuration
+install_monit: false
+monit_check_interval: 60  # seconds
+
+# =============================================================================
+# Backup Configuration (Optional)
+# =============================================================================
+
+# Enable automated backups
+configure_backups: false
+backup_dir: "/var/backups/mydns"
+backup_retention_days: 7
+backup_schedule: "0 2 * * *"  # Daily at 2 AM
+
+# =============================================================================
+# Development/Testing Settings
+# =============================================================================
+
+# Skip building from source (use existing binaries)
+skip_build: false
+
+# Enable debug logging
+debug_mode: false
+
+# Restart services after deployment
+restart_services: true

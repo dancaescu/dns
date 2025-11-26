@@ -1,0 +1,12 @@
+[Unit]
+Description=GeoIP Sensor Timer
+Documentation=file:///opt/sensor/README.md
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec={{ sensor_interval | default(60) }}min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

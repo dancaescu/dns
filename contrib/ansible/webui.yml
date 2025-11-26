@@ -1,0 +1,344 @@
+---
+# DNS Manager Web UI Installation Playbook
+# Deploys React frontend and Express API backend
+#
+# Usage:
+#   ansible-playbook -i inventory webui.yml
+#   ansible-playbook -i inventory webui.yml -e "install_nginx=false"
+#
+# Tags:
+#   - nodejs: Install Node.js
+#   - pm2: Install PM2
+#   - deploy: Deploy application
+#   - build: Build frontend
+#   - config: Configure backend
+#   - nginx: Configure nginx
+#   - service: Start services
+
+- name: Install and Configure DNS Manager Web UI
+  hosts: webui_servers
+  become: yes
+
+  vars:
+    app_source_dir: "/scripts/mydns-ng-master/contrib/dnsmanager"
+    app_deploy_dir: "/opt/dnsmanager"
+    app_user: "dnsmanager"
+    app_group: "dnsmanager"
+    api_port: 4000
+    nodejs_version: "20"
+    pm2_app_name: "dnsmanager-server"
+    install_nginx: true
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags: [always]
+
+    - name: Install prerequisites
+      apt:
+        name:
+          - curl
+          - gnupg
+          - ca-certificates
+        state: present
+      tags: [nodejs]
+
+    - name: Add NodeSource GPG key
+      apt_key:
+        url: "https://deb.nodesource.com/gpgkey/nodesource.gpg.key"
+        state: present
+      tags: [nodejs]
+
+    - name: Add NodeSource repository
+      apt_repository:
+        repo: "deb https://deb.nodesource.com/node_{{ nodejs_version }}.x {{ ansible_distribution_release }} main"
+        state: present
+        filename: nodesource
+      tags: [nodejs]
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+      tags: [nodejs]
+
+    - name: Verify Node.js installation
+      command: node --version
+      register: node_version
+      changed_when: false
+      tags: [nodejs]
+
+    - name: Display Node.js version
+      debug:
+        msg: "Node.js version: {{ node_version.stdout }}"
+      tags: [nodejs]
+
+    - name: Install PM2 globally
+      npm:
+        name: pm2
+        global: yes
+        state: present
+      tags: [pm2]
+
+    - name: Create application user
+      user:
+        name: "{{ app_user }}"
+        group: "{{ app_group }}"
+        system: yes
+        shell: /bin/bash
+        home: "{{ app_deploy_dir }}"
+        create_home: yes
+      tags: [deploy]
+
+    - name: Create application directory
+      file:
+        path: "{{ app_deploy_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: '0755'
+      tags: [deploy]
+
+    - name: Copy application files - server
+      synchronize:
+        src: "{{ app_source_dir }}/server/"
+        dest: "{{ app_deploy_dir }}/server/"
+        recursive: yes
+        delete: no
+        rsync_opts:
+          - "--exclude=node_modules"
+          - "--exclude=dist"
+      tags: [deploy]
+
+    - name: Copy application files - client
+      synchronize:
+        src: "{{ app_source_dir }}/client/"
+        dest: "{{ app_deploy_dir }}/client/"
+        recursive: yes
+        delete: no
+        rsync_opts:
+          - "--exclude=node_modules"
+          - "--exclude=dist"
+      tags: [deploy]
+
+    - name: Set ownership of application files
+      file:
+        path: "{{ app_deploy_dir }}"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        recurse: yes
+      tags: [deploy]
+
+    - name: Install server dependencies
+      npm:
+        path: "{{ app_deploy_dir }}/server"
+        state: present
+      become_user: "{{ app_user }}"
+      tags: [deploy]
+
+    - name: Build server TypeScript
+      command: npm run build
+      args:
+        chdir: "{{ app_deploy_dir }}/server"
+      become_user: "{{ app_user }}"
+      tags: [deploy]
+
+    - name: Install client dependencies
+      npm:
+        path: "{{ app_deploy_dir }}/client"
+        state: present
+      become_user: "{{ app_user }}"
+      tags: [deploy]
+
+    - name: Build client React app
+      command: npm run build
+      args:
+        chdir: "{{ app_deploy_dir }}/client"
+      become_user: "{{ app_user }}"
+      environment:
+        NODE_ENV: production
+      tags: [build]
+
+    - name: Create server configuration file
+      template:
+        src: templates/dnsmanager-config.js.j2
+        dest: "{{ app_deploy_dir }}/server/src/config.js"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: '0640'
+      notify: restart pm2
+      tags: [config]
+
+    - name: Create .env file
+      template:
+        src: templates/dnsmanager.env.j2
+        dest: "{{ app_deploy_dir }}/.env"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: '0600'
+      notify: restart pm2
+      tags: [config]
+
+    - name: Create PM2 ecosystem file
+      template:
+        src: templates/ecosystem.config.js.j2
+        dest: "{{ app_deploy_dir }}/ecosystem.config.js"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: '0644'
+      tags: [config]
+
+    - name: Stop existing PM2 processes
+      command: pm2 delete {{ pm2_app_name }}
+      become_user: "{{ app_user }}"
+      failed_when: false
+      changed_when: false
+      tags: [service]
+
+    - name: Start application with PM2
+      command: pm2 start ecosystem.config.js
+      args:
+        chdir: "{{ app_deploy_dir }}"
+      become_user: "{{ app_user }}"
+      tags: [service]
+
+    - name: Save PM2 configuration
+      command: pm2 save
+      become_user: "{{ app_user }}"
+      tags: [service]
+
+    - name: Generate PM2 startup script
+      command: pm2 startup systemd -u {{ app_user }} --hp {{ app_deploy_dir }}
+      register: pm2_startup
+      changed_when: false
+      tags: [service]
+
+    - name: Execute PM2 startup command
+      shell: "{{ pm2_startup.stdout_lines[-1] }}"
+      when: pm2_startup.stdout_lines | length > 0
+      tags: [service]
+
+    - name: Wait for API to be ready
+      wait_for:
+        port: "{{ api_port }}"
+        timeout: 30
+      tags: [service]
+
+    - name: Verify API health
+      uri:
+        url: "http://localhost:{{ api_port }}/api/health"
+        method: GET
+        status_code: 200
+        timeout: 10
+      register: health_check
+      failed_when: false
+      changed_when: false
+      tags: [service]
+
+    - name: Display API health status
+      debug:
+        msg: "API is {{ 'healthy' if health_check.status == 200 else 'not responding' }}"
+      tags: [service]
+
+    # Nginx configuration (optional)
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+      when: install_nginx | bool
+      tags: [nginx]
+
+    - name: Install certbot (for Let's Encrypt)
+      apt:
+        name:
+          - certbot
+          - python3-certbot-nginx
+        state: present
+      when:
+        - install_nginx | bool
+        - use_letsencrypt | default(false) | bool
+      tags: [nginx]
+
+    - name: Create nginx configuration
+      template:
+        src: templates/nginx-dnsmanager.conf.j2
+        dest: /etc/nginx/sites-available/dnsmanager
+        owner: root
+        group: root
+        mode: '0644'
+      when: install_nginx | bool
+      notify: reload nginx
+      tags: [nginx]
+
+    - name: Enable nginx site
+      file:
+        src: /etc/nginx/sites-available/dnsmanager
+        dest: /etc/nginx/sites-enabled/dnsmanager
+        state: link
+      when: install_nginx | bool
+      notify: reload nginx
+      tags: [nginx]
+
+    - name: Remove default nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      when: install_nginx | bool
+      notify: reload nginx
+      tags: [nginx]
+
+    - name: Test nginx configuration
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+      when: install_nginx | bool
+      tags: [nginx]
+
+    - name: Display nginx test result
+      debug:
+        var: nginx_test.stdout_lines
+      when: install_nginx | bool
+      tags: [nginx]
+
+    - name: Start and enable nginx
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+      when: install_nginx | bool
+      tags: [nginx]
+
+    - name: Obtain Let's Encrypt certificate
+      command: >
+        certbot --nginx -d {{ domain_name }}
+        --non-interactive --agree-tos
+        --email {{ letsencrypt_email }}
+        --redirect
+      when:
+        - install_nginx | bool
+        - use_letsencrypt | default(false) | bool
+        - ssl_enabled | default(true) | bool
+      tags: [nginx]
+
+    - name: Display deployment summary
+      debug:
+        msg:
+          - "DNS Manager Web UI deployed successfully!"
+          - "Backend API: http://localhost:{{ api_port }}"
+          - "Frontend: {{ domain_name if install_nginx else 'Served by backend on port ' + api_port|string }}"
+          - "PM2 Status: pm2 status"
+          - "PM2 Logs: pm2 logs {{ pm2_app_name }}"
+      tags: [always]
+
+  handlers:
+    - name: restart pm2
+      command: pm2 restart {{ pm2_app_name }}
+      become_user: "{{ app_user }}"
+
+    - name: reload nginx
+      systemd:
+        name: nginx
+        state: reloaded

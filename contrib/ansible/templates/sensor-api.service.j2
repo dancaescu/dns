@@ -1,0 +1,26 @@
+[Unit]
+Description=GeoIP Sensor Script
+Documentation=file:///opt/sensor/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ sensor_user }}
+Group={{ sensor_group }}
+WorkingDirectory={{ sensor_home }}
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+ExecStart={{ sensor_home }}/sensor-api.py --location {{ sensor_location | default('na') }} --api-url {{ api_url }} --api-key {{ api_token }}
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sensor-api
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ sensor_home }}
+
+[Install]
+WantedBy=multi-user.target
