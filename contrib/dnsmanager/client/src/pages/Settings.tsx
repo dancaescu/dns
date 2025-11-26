@@ -5,7 +5,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { apiRequest } from "../lib/api";
 import { useNavigate } from "react-router-dom";
-import { UnifiedHeader } from "../components/UnifiedHeader";
+import { Layout } from "../components/Layout";
 
 interface User {
   id: number;
@@ -136,15 +136,12 @@ export function Settings({ onLogout, user }: { onLogout: () => void; user: User 
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      <UnifiedHeader
-        title="System Settings"
-        subtitle="Configure system-wide settings"
-        onLogout={onLogout}
-        user={user}
-      />
-
-      <main className="mx-auto max-w-4xl space-y-6 px-4 py-6">
+    <Layout
+      user={user}
+      onLogout={onLogout}
+      breadcrumbs={[{ label: "System Settings" }]}
+    >
+      <div className="mx-auto max-w-7xl space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>Multitel API Configuration</CardTitle>
@@ -341,7 +338,7 @@ export function Settings({ onLogout, user }: { onLogout: () => void; user: User 
             </div>
           </CardContent>
         </Card>
-      </main>
-    </div>
+      </div>
+    </Layout>
   );
 }

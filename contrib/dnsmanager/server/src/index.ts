@@ -11,6 +11,7 @@ import ticketsRoutes from "./routes/tickets.js";
 import logsRoutes from "./routes/logs.js";
 import publicApiRoutes from "./routes/publicApi.js";
 import permissionsRoutes from "./routes/permissions.js";
+import geosensorsRoutes from "./routes/geosensors.js";
 import { getActiveHost } from "./db.js";
 
 const app = express();
@@ -38,6 +39,7 @@ app.use("/api/tickets", ticketsRoutes);
 app.use("/api/logs", logsRoutes);
 app.use("/api/v1", publicApiRoutes);
 app.use("/api/permissions", permissionsRoutes);
+app.use("/api/sensors", geosensorsRoutes);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

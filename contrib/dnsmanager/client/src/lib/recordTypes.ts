@@ -139,6 +139,32 @@ export const RECORD_TYPES: Record<string, RecordTypeConfig> = {
     contentLabel: "URI",
     supportsPriority: true,
   },
+  DNAME: {
+    value: "DNAME",
+    label: "DNAME",
+    contentLabel: "Target domain",
+    contentPlaceholder: "target.example.com",
+  },
+  RRSIG: {
+    value: "RRSIG",
+    label: "RRSIG",
+    contentLabel: "Signature",
+  },
+  NSEC: {
+    value: "NSEC",
+    label: "NSEC",
+    contentLabel: "Next domain",
+  },
+  NSEC3: {
+    value: "NSEC3",
+    label: "NSEC3",
+    contentLabel: "Hashed name",
+  },
+  NSEC3PARAM: {
+    value: "NSEC3PARAM",
+    label: "NSEC3PARAM",
+    contentLabel: "Parameters",
+  },
 };
 
 export const RECORD_TYPE_LIST = Object.values(RECORD_TYPES).sort((a, b) =>

@@ -294,11 +294,31 @@ mydns_rr_get_type(char *type) {
   case 'C':
     if (type[1] == 'N' && type[2] == 'A' && type[3] == 'M' && type[4] == 'E' && !type[5])
       return DNS_QTYPE_CNAME;
+    if (type[1] == 'A' && type[2] == 'A' && !type[3])
+      return DNS_QTYPE_CAA;
+    if (type[1] == 'E' && type[2] == 'R' && type[3] == 'T' && !type[4])
+      return DNS_QTYPE_CERT;
+    break;
+
+  case 'D':
+    if (type[1] == 'N' && type[2] == 'A' && type[3] == 'M' && type[4] == 'E' && !type[5])
+      return DNS_QTYPE_DNAME;
+    if (type[1] == 'N' && type[2] == 'S' && type[3] == 'K' && type[4] == 'E' && type[5] == 'Y' && !type[6])
+      return DNS_QTYPE_DNSKEY;
+    if (type[1] == 'S' && !type[2])
+      return DNS_QTYPE_DS;
     break;
 
   case 'H':
     if (type[1] == 'I' && type[2] == 'N' && type[3] == 'F' && type[4] == 'O' && !type[5])
       return DNS_QTYPE_HINFO;
+    if (type[1] == 'T' && type[2] == 'T' && type[3] == 'P' && type[4] == 'S' && !type[5])
+      return DNS_QTYPE_HTTPS;
+    break;
+
+  case 'L':
+    if (type[1] == 'O' && type[2] == 'C' && !type[3])
+      return DNS_QTYPE_LOC;
     break;
 
   case 'M':
@@ -311,11 +331,17 @@ mydns_rr_get_type(char *type) {
       return DNS_QTYPE_NS;
     if (type[1] == 'A' && type[2] == 'P' && type[3] == 'T' && type[4] == 'R' && !type[5])
       return DNS_QTYPE_NAPTR;
+    if (type[1] == 'S' && type[2] == 'E' && type[3] == 'C' && !type[4])
+      return DNS_QTYPE_NSEC;
+    if (type[1] == 'S' && type[2] == 'E' && type[3] == 'C' && type[4] == '3' && !type[5])
+      return DNS_QTYPE_NSEC3;
+    if (type[1] == 'S' && type[2] == 'E' && type[3] == 'C' && type[4] == '3' && type[5] == 'P' && type[6] == 'A' && type[7] == 'R' && type[8] == 'A' && type[9] == 'M' && !type[10])
+      return DNS_QTYPE_NSEC3PARAM;
     break;
 
-  case 'T':
-    if (type[1] == 'X' && type[2] == 'T' && !type[3])
-      return DNS_QTYPE_TXT;
+  case 'O':
+    if (type[1] == 'P' && type[2] == 'E' && type[3] == 'N' && type[4] == 'P' && type[5] == 'G' && type[6] == 'P' && type[7] == 'K' && type[8] == 'E' && type[9] == 'Y' && !type[10])
+      return DNS_QTYPE_OPENPGPKEY;
     break;
 
   case 'P':
@@ -326,11 +352,31 @@ mydns_rr_get_type(char *type) {
   case 'R':
     if (type[1] == 'P' && !type[2])
       return DNS_QTYPE_RP;
+    if (type[1] == 'R' && type[2] == 'S' && type[3] == 'I' && type[4] == 'G' && !type[5])
+      return DNS_QTYPE_RRSIG;
     break;
 
   case 'S':
     if (type[1] == 'R' && type[2] == 'V' && !type[3])
       return DNS_QTYPE_SRV;
+    if (type[1] == 'M' && type[2] == 'I' && type[3] == 'M' && type[4] == 'E' && type[5] == 'A' && !type[6])
+      return DNS_QTYPE_SMIMEA;
+    if (type[1] == 'S' && type[2] == 'H' && type[3] == 'F' && type[4] == 'P' && !type[5])
+      return DNS_QTYPE_SSHFP;
+    if (type[1] == 'V' && type[2] == 'C' && type[3] == 'B' && !type[4])
+      return DNS_QTYPE_SVCB;
+    break;
+
+  case 'T':
+    if (type[1] == 'X' && type[2] == 'T' && !type[3])
+      return DNS_QTYPE_TXT;
+    if (type[1] == 'L' && type[2] == 'S' && type[3] == 'A' && !type[4])
+      return DNS_QTYPE_TLSA;
+    break;
+
+  case 'U':
+    if (type[1] == 'R' && type[2] == 'I' && !type[3])
+      return DNS_QTYPE_URI;
     break;
   }
   return 0;
@@ -1040,6 +1086,24 @@ mydns_rr_prepare_query(uint32_t zone, dns_qtype_t type, const char *name, const 
   case DNS_QTYPE_SOA:		wheretype = " AND type='SOA'"; break;
   case DNS_QTYPE_SRV:		wheretype = " AND type='SRV'"; break;
   case DNS_QTYPE_TXT:		wheretype = " AND type='TXT'"; break;
+  case DNS_QTYPE_RP:		wheretype = " AND type='RP'"; break;
+  case DNS_QTYPE_LOC:		wheretype = " AND type='LOC'"; break;
+  case DNS_QTYPE_CAA:		wheretype = " AND type='CAA'"; break;
+  case DNS_QTYPE_CERT:		wheretype = " AND type='CERT'"; break;
+  case DNS_QTYPE_DNAME:		wheretype = " AND type='DNAME'"; break;
+  case DNS_QTYPE_DNSKEY:	wheretype = " AND type='DNSKEY'"; break;
+  case DNS_QTYPE_DS:		wheretype = " AND type='DS'"; break;
+  case DNS_QTYPE_HTTPS:		wheretype = " AND type='HTTPS'"; break;
+  case DNS_QTYPE_NSEC:		wheretype = " AND type='NSEC'"; break;
+  case DNS_QTYPE_NSEC3:		wheretype = " AND type='NSEC3'"; break;
+  case DNS_QTYPE_NSEC3PARAM:	wheretype = " AND type='NSEC3PARAM'"; break;
+  case DNS_QTYPE_OPENPGPKEY:	wheretype = " AND type='OPENPGPKEY'"; break;
+  case DNS_QTYPE_RRSIG:		wheretype = " AND type='RRSIG'"; break;
+  case DNS_QTYPE_SMIMEA:	wheretype = " AND type='SMIMEA'"; break;
+  case DNS_QTYPE_SSHFP:		wheretype = " AND type='SSHFP'"; break;
+  case DNS_QTYPE_SVCB:		wheretype = " AND type='SVCB'"; break;
+  case DNS_QTYPE_TLSA:		wheretype = " AND type='TLSA'"; break;
+  case DNS_QTYPE_URI:		wheretype = " AND type='URI'"; break;
   case DNS_QTYPE_ANY:		wheretype = ""; break;
   default:
     errno = EINVAL;

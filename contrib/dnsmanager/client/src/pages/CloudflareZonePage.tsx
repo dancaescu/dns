@@ -28,7 +28,7 @@ import { TagInput } from "../components/ui/tag-input";
 import { SyncModal, SyncMode } from "../components/SyncModal";
 import { LoadBalancerEditor } from "../components/LoadBalancerEditor";
 import { HealthStatusBadge } from "../components/HealthStatusBadge";
-import { UnifiedHeader } from "../components/UnifiedHeader";
+import { Layout } from "../components/Layout";
 
 interface User {
   id: number;
@@ -1226,16 +1226,16 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <Layout
+      user={user}
+      onLogout={onLogout}
+      breadcrumbs={[
+        { label: "Dashboard", path: "/" },
+        { label: zone?.name || "Loading..." }
+      ]}
+    >
       <ToastContainer />
-      <UnifiedHeader
-        title="Cloudflare Zone"
-        subtitle={zone ? `${zone.name} · Account: ${zone.account_name || "Unknown"}` : undefined}
-        showBackButton={true}
-        onLogout={onLogout}
-        user={user}
-      />
-      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
+      <div className="mx-auto max-w-7xl space-y-6">
         {zone && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -2444,7 +2444,7 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
             )}
           </CardContent>
         </Card>
-      </main>
+      </div>
 
       {/* Sync Modal */}
       <SyncModal
@@ -2537,6 +2537,6 @@ export function CloudflareZonePage({ onLogout, user }: { onLogout: () => void; u
         loadBalancer={editingLoadBalancer}
         zoneName={zone?.name || ""}
       />
-    </div>
+    </Layout>
   );
 }

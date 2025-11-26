@@ -10,22 +10,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Checkbox } from "../components/ui/checkbox";
 import { apiRequest } from "../lib/api";
 import { toast, ToastContainer } from "../components/ui/toast";
-import { UnifiedHeader } from "../components/UnifiedHeader";
+import { Layout } from "../components/Layout";
 
 interface User {
   id: number;
   username: string;
   email: string;
-  full_name: string | null;
+  full_name?: string | null;
   role: "superadmin" | "account_admin" | "user";
-  active: number;
-  require_2fa: number;
-  twofa_method: "email" | "sms" | "none";
-  twofa_contact: string | null;
-  managed_by: number | null;
-  managed_by_username: string | null;
-  last_login: string | null;
-  created_at: string;
+  active?: number;
+  require_2fa?: number;
+  twofa_method?: "email" | "sms" | "none";
+  twofa_contact?: string | null;
+  managed_by?: number | null;
+  managed_by_username?: string | null;
+  last_login?: string | null;
+  created_at?: string;
 }
 
 interface AccountAdmin {
@@ -342,6 +342,10 @@ export function UserManagement({ onLogout, user }: { onLogout: () => void; user:
         full_name: "",
         role: "user",
         active: true,
+        require_2fa: false,
+        twofa_method: "none",
+        twofa_contact: "",
+        managed_by: null,
       });
       loadUsers();
       toast.success("User created successfully");
@@ -455,7 +459,7 @@ export function UserManagement({ onLogout, user }: { onLogout: () => void; user:
     }
   }
 
-  async function handleRestoreRecord(recordId: number) {
+  async function handleRestoreDnsRecord(recordId: number) {
     try {
       await apiRequest(`/rr/${recordId}/restore`, {
         method: "POST",
@@ -522,19 +526,21 @@ export function UserManagement({ onLogout, user }: { onLogout: () => void; user:
         if (perm.permission_type === 'cloudflare_account') {
           // This is a Cloudflare account permission
           console.log('[openZoneAssignModal] Found Cloudflare account permission:', perm);
-          accountsMap.set(perm.resource_id, {
-            can_view: perm.can_view,
-            can_add: perm.can_add,
-            can_edit: perm.can_edit,
-            can_delete: perm.can_delete,
-            can_api_access: perm.can_api_access || false,
-          });
-        } else {
+          if (perm.resource_id !== undefined) {
+            accountsMap.set(perm.resource_id, {
+              can_view: perm.can_view,
+              can_add: perm.can_add,
+              can_edit: perm.can_edit,
+              can_delete: perm.can_delete,
+              can_api_access: perm.can_api_access || false,
+            });
+          }
+        } else if (perm.zone_type) {
           // This is a zone permission
           const key = `${perm.zone_type}-${perm.zone_id === null ? 'new' : perm.zone_id}`;
           assignedMap.set(key, {
             zone_type: perm.zone_type,
-            zone_id: perm.zone_id,
+            zone_id: perm.zone_id ?? null,
             can_view: perm.can_view,
             can_add: perm.can_add,
             can_edit: perm.can_edit,
@@ -632,7 +638,7 @@ export function UserManagement({ onLogout, user }: { onLogout: () => void; user:
 
       // Delete removed account permissions
       for (const perm of existingAccountPerms) {
-        if (!assignedAccountIds.has(perm.resource_id)) {
+        if (perm.resource_id !== undefined && !assignedAccountIds.has(perm.resource_id)) {
           console.log('[saveZoneAssignments] Deleting account permission:', perm.resource_id);
           await apiRequest(`/permissions/users/${perm.id}`, { method: "DELETE" });
         }
@@ -757,15 +763,12 @@ export function UserManagement({ onLogout, user }: { onLogout: () => void; user:
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      <UnifiedHeader
-        title="User Management"
-        subtitle="Manage users, permissions, and audit logs"
-        onLogout={onLogout}
-        user={user}
-      />
-
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
+    <Layout
+      user={user}
+      onLogout={onLogout}
+      breadcrumbs={[{ label: "User Management" }]}
+    >
+      <div className="mx-auto max-w-7xl space-y-6">
         <Tabs defaultValue="users">
           <TabsList>
             <TabsTrigger value="users">Users</TabsTrigger>
@@ -1262,7 +1265,6 @@ export function UserManagement({ onLogout, user }: { onLogout: () => void; user:
             </Card>
           </TabsContent>
         </Tabs>
-      </main>
 
       {/* Add User Modal */}
       {showAddUserModal && (
@@ -1850,7 +1852,7 @@ export function UserManagement({ onLogout, user }: { onLogout: () => void; user:
                       className="mb-2"
                     />
                     <div className="border rounded flex-1 overflow-y-auto">
-                      {assignedZonesList.map(item => {
+                      {assignedZonesList.filter((item): item is NonNullable<typeof item> => item !== null).map(item => {
                         const key = `${item.zone_type}-${item.id === null ? 'new' : item.id}`;
                         return (
                           <div
@@ -2182,6 +2184,7 @@ export function UserManagement({ onLogout, user }: { onLogout: () => void; user:
       )}
 
       <ToastContainer />
-    </div>
+      </div>
+    </Layout>
   );
 }

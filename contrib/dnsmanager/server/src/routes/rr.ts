@@ -9,7 +9,7 @@ const router = Router();
 const upsertSchema = z.object({
   zone: z.number().int().positive(),
   name: z.string().min(1),
-  type: z.enum(["A", "AAAA", "CNAME", "HINFO", "MX", "NAPTR", "NS", "PTR", "RP", "SRV", "TXT"]),
+  type: z.enum(["A", "AAAA", "CAA", "CERT", "CNAME", "DNAME", "DNSKEY", "DS", "HINFO", "HTTPS", "LOC", "MX", "NAPTR", "NS", "NSEC", "NSEC3", "NSEC3PARAM", "OPENPGPKEY", "PTR", "RP", "RRSIG", "SMIMEA", "SRV", "SSHFP", "SVCB", "TLSA", "TXT", "URI"]),
   data: z.string().min(1),
   aux: z.number().int().nonnegative().default(0),
   ttl: z.number().int().nonnegative().default(86400),

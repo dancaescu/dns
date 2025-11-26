@@ -25,12 +25,12 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
 TableRow.displayName = "TableRow";
 
 const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<HTMLTableCellElement>>(
-  (props, ref) => <RadixTable.ColumnHeaderCell {...props} />,
+  (props, ref) => <RadixTable.ColumnHeaderCell {...props as any} />,
 );
 TableHead.displayName = "TableHead";
 
 const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttributes<HTMLTableCellElement>>(
-  (props, ref) => <RadixTable.Cell {...props} />,
+  (props, ref) => <RadixTable.Cell {...props as any} />,
 );
 TableCell.displayName = "TableCell";
 

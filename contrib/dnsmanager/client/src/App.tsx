@@ -8,14 +8,23 @@ import { Settings } from "./pages/Settings";
 import ApiDocs from "./pages/ApiDocs";
 import { ApiTokensPage } from "./pages/ApiTokensPage";
 import { UserSettings } from "./pages/UserSettings";
+import { GeoSensors } from "./pages/GeoSensors";
 import { getToken, setToken, logout, apiRequest, onTokenChange } from "./lib/api";
 
 interface User {
   id: number;
   username: string;
   email: string;
-  role: string;
-  full_name?: string;
+  full_name?: string | null;
+  role: "superadmin" | "account_admin" | "user";
+  active?: number;
+  require_2fa?: number;
+  twofa_method?: "email" | "sms" | "none";
+  twofa_contact?: string | null;
+  managed_by?: number | null;
+  managed_by_username?: string | null;
+  last_login?: string | null;
+  created_at?: string;
 }
 
 export default function App() {
@@ -106,6 +115,7 @@ export default function App() {
       <Route path="/api-docs" element={<ApiDocs onLogout={handleLogout} user={user} />} />
       <Route path="/api-tokens" element={<ApiTokensPage onLogout={handleLogout} user={user} />} />
       <Route path="/my-settings" element={<UserSettings user={user} onLogout={handleLogout} />} />
+      <Route path="/geosensors" element={<GeoSensors user={user} onLogout={handleLogout} />} />
       {user?.role === "superadmin" && (
         <>
           <Route path="/users" element={<UserManagement onLogout={handleLogout} user={user} />} />

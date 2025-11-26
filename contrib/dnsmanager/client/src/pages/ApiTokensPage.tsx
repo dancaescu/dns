@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Checkbox } from "../components/ui/checkbox";
 import { apiRequest } from "../lib/api";
 import { toast } from "../components/ui/toast";
-import { UnifiedHeader } from "../components/UnifiedHeader";
+import { Layout } from "../components/Layout";
 
 interface User {
   id: number;
@@ -142,14 +142,12 @@ export function ApiTokensPage({ onLogout, user }: { onLogout: () => void; user: 
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      <UnifiedHeader
-        title="API Tokens"
-        subtitle="Manage your API access tokens"
-        onLogout={onLogout}
-        user={user}
-      />
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
+    <Layout
+      user={user}
+      onLogout={onLogout}
+      breadcrumbs={[{ label: "API Tokens" }]}
+    >
+      <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex justify-end">
           <Button onClick={() => setShowCreateModal(true)}>Create New Token</Button>
         </div>
@@ -224,7 +222,6 @@ export function ApiTokensPage({ onLogout, user }: { onLogout: () => void; user: 
           </Table>
         </CardContent>
       </Card>
-      </main>
 
       {/* Create Token Modal */}
       {showCreateModal && (
@@ -340,6 +337,7 @@ export function ApiTokensPage({ onLogout, user }: { onLogout: () => void; user: 
           </Card>
         </div>
       )}
-    </div>
+      </div>
+    </Layout>
   );
 }

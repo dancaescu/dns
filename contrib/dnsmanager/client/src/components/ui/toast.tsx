@@ -11,7 +11,25 @@ export interface Toast {
 
 const toastListeners: ((toast: Toast) => void)[] = [];
 
-export const toast = {
+interface ToastOptions {
+  title?: string;
+  description: string;
+  variant?: "default" | "destructive";
+}
+
+function toastFunction(options: ToastOptions): void;
+function toastFunction(message: string): void;
+function toastFunction(arg: string | ToastOptions): void {
+  if (typeof arg === "string") {
+    toastFunctions.show(arg);
+  } else {
+    const type = arg.variant === "destructive" ? "error" : "info";
+    const message = arg.title ? `${arg.title}: ${arg.description}` : arg.description;
+    toastFunctions.show(message, type);
+  }
+}
+
+const toastFunctions = {
   show: (message: string, type: ToastType = "info", duration: number = 3000) => {
     const newToast: Toast = {
       id: `toast-${Date.now()}-${Math.random()}`,
@@ -21,11 +39,13 @@ export const toast = {
     };
     toastListeners.forEach((listener) => listener(newToast));
   },
-  success: (message: string, duration?: number) => toast.show(message, "success", duration),
-  error: (message: string, duration?: number) => toast.show(message, "error", duration),
-  info: (message: string, duration?: number) => toast.show(message, "info", duration),
-  warning: (message: string, duration?: number) => toast.show(message, "warning", duration),
+  success: (message: string, duration?: number) => toastFunctions.show(message, "success", duration),
+  error: (message: string, duration?: number) => toastFunctions.show(message, "error", duration),
+  info: (message: string, duration?: number) => toastFunctions.show(message, "info", duration),
+  warning: (message: string, duration?: number) => toastFunctions.show(message, "warning", duration),
 };
+
+export const toast = Object.assign(toastFunction, toastFunctions);
 
 export function ToastContainer() {
   const [toasts, setToasts] = useState<Toast[]>([]);

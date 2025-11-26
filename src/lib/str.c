@@ -105,8 +105,15 @@ mydns_qtype_str(dns_qtype_t qtype) {
   case DNS_QTYPE_NSEC:		return ("NSEC");
   case DNS_QTYPE_DNSKEY:	return ("DNSKEY");
   case DNS_QTYPE_DHCID:		return ("DHCID");
-  case DNS_QTYPE_NSEC3:		return ("NSEC");
+  case DNS_QTYPE_NSEC3:		return ("NSEC3");
   case DNS_QTYPE_NSEC3PARAM:	return ("NSEC3PARAM");
+  case DNS_QTYPE_TLSA:		return ("TLSA");
+  case DNS_QTYPE_SMIMEA:	return ("SMIMEA");
+  case DNS_QTYPE_OPENPGPKEY:	return ("OPENPGPKEY");
+  case DNS_QTYPE_SVCB:		return ("SVCB");
+  case DNS_QTYPE_HTTPS:		return ("HTTPS");
+  case DNS_QTYPE_URI:		return ("URI");
+  case DNS_QTYPE_CAA:		return ("CAA");
 
   case DNS_QTYPE_HIP:		return ("HIP");
 

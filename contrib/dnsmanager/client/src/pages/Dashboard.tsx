@@ -13,7 +13,7 @@ import { cn } from "../lib/utils";
 import { TicketModal } from "../components/TicketModal";
 import { toast, ToastContainer } from "../components/ui/toast";
 import html2canvas from "html2canvas";
-import { UnifiedHeader } from "../components/UnifiedHeader";
+import { Layout } from "../components/Layout";
 
 interface SoaRecord {
   id: number;
@@ -1015,15 +1015,13 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      <UnifiedHeader
-        title="DNS Manager"
-        subtitle="Manage SOA/RR and mirrored Cloudflare data"
-        onLogout={onLogout}
-        onSupportClick={openSupportTicketModal}
-        user={user}
-      />
-      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
+    <Layout
+      user={user}
+      onLogout={onLogout}
+      onSupportClick={openSupportTicketModal}
+      breadcrumbs={[{ label: "Dashboard" }]}
+    >
+      <div className="mx-auto max-w-7xl space-y-6">
         <Tabs defaultValue="soa">
           <TabsList>
             <TabsTrigger value="soa">SOA Records</TabsTrigger>
@@ -2023,7 +2021,7 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
             </div>
           </TabsContent>
         </Tabs>
-      </main>
+      </div>
 
       <TicketModal
         isOpen={ticketModalOpen}
@@ -2320,6 +2318,6 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
       )}
 
       <ToastContainer />
-    </div>
+    </Layout>
   );
 }

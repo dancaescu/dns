@@ -1,7 +1,7 @@
 import React from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { UnifiedHeader } from "../components/UnifiedHeader";
+import { Layout } from "../components/Layout";
 
 interface User {
   id: number;
@@ -12,14 +12,12 @@ interface User {
 
 export default function ApiDocs({ onLogout, user }: { onLogout: () => void; user: User | null }) {
   return (
-    <div className="min-h-screen bg-muted/30">
-      <UnifiedHeader
-        title="API Documentation"
-        subtitle="Complete reference for the DNS Manager Public API v1"
-        onLogout={onLogout}
-        user={user}
-      />
-      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
+    <Layout
+      user={user}
+      onLogout={onLogout}
+      breadcrumbs={[{ label: "API Documentation" }]}
+    >
+      <div className="mx-auto max-w-7xl space-y-6">
 
       {/* Authentication */}
       <Card className="mb-8">
@@ -2110,7 +2108,7 @@ public class DeleteRR {
           </ul>
         </CardContent>
       </Card>
-      </main>
-    </div>
+      </div>
+    </Layout>
   );
 }

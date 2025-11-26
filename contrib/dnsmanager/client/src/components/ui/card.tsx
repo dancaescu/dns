@@ -20,7 +20,7 @@ CardHeader.displayName = "CardHeader";
 
 const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ children, ...props }, ref) => (
-    <Heading as="h3" size="5" mb="1" {...props}>
+    <Heading as="h3" size="5" mb="1" {...props as any}>
       {children}
     </Heading>
   ),
@@ -29,7 +29,7 @@ CardTitle.displayName = "CardTitle";
 
 const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
   ({ children, ...props }, ref) => (
-    <Text as="p" size="2" color="gray" {...props}>
+    <Text as="p" size="2" color="gray" {...props as any}>
       {children}
     </Text>
   ),

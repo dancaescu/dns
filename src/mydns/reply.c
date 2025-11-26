@@ -473,10 +473,29 @@ reply_add_a(TASK *t, RR *r) {
   MYDNS_RR	*rr = (MYDNS_RR *)r->rr;
   struct in_addr addr;
   uint32_t	ip = 0;
+  const char	*data_value = MYDNS_RR_DATA_VALUE(rr);
+  char		*geo_data = NULL;
+  int		zone_geoip_enabled = 0;
 
   memset(&addr, 0, sizeof(addr));
 
-  if (inet_pton(AF_INET, MYDNS_RR_DATA_VALUE(rr), (void *)&addr) <= 0) {
+  /* Check for GeoIP-specific data */
+  if (GeoIP && t->client_sensor_id > 0 && t->zone > 0) {
+    /* Check if zone has GeoIP enabled */
+    zone_geoip_enabled = geoip_zone_enabled(GeoIP, t->zone);
+    if (zone_geoip_enabled == 1) {
+      /* Try to get location-specific data */
+      geo_data = geoip_get_rr_data(GeoIP, r->id, t->client_sensor_id);
+      if (geo_data) {
+        data_value = geo_data;
+#if DEBUG_ENABLED
+        Debug(_("GeoIP: Using location-specific IP for rr %u: %s"), r->id, data_value);
+#endif
+      }
+    }
+  }
+
+  if (inet_pton(AF_INET, data_value, (void *)&addr) <= 0) {
     dnserror(t, DNS_RCODE_SERVFAIL, ERR_INVALID_ADDRESS);
     return rr_error(r->id, _("rr %u: %s (A %s) (address=\"%s\")"), r->id,
 		    _("invalid address in \"data\""), _("record"), (char*)MYDNS_RR_DATA_VALUE(rr));
@@ -495,6 +514,11 @@ reply_add_a(TASK *t, RR *r) {
   DNS_PUT16(dest, size);
   DNS_PUT32(dest, ip);
 
+  /* Free geo_data if allocated */
+  if (geo_data) {
+    free(geo_data);
+  }
+
   return (0);
 }
 /*--- reply_add_a() -----------------------------------------------------------------------------*/
@@ -511,10 +535,29 @@ reply_add_aaaa(TASK *t, RR *r) {
   int		size = 0;
   MYDNS_RR	*rr = (MYDNS_RR *)r->rr;
   uint8_t	addr[16];
+  const char	*data_value = MYDNS_RR_DATA_VALUE(rr);
+  char		*geo_data = NULL;
+  int		zone_geoip_enabled = 0;
 
   memset(&addr, 0, sizeof(addr));
 
-  if (inet_pton(AF_INET6, MYDNS_RR_DATA_VALUE(rr), (void *)&addr) <= 0) {
+  /* Check for GeoIP-specific data */
+  if (GeoIP && t->client_sensor_id > 0 && t->zone > 0) {
+    /* Check if zone has GeoIP enabled */
+    zone_geoip_enabled = geoip_zone_enabled(GeoIP, t->zone);
+    if (zone_geoip_enabled == 1) {
+      /* Try to get location-specific data */
+      geo_data = geoip_get_rr_data(GeoIP, r->id, t->client_sensor_id);
+      if (geo_data) {
+        data_value = geo_data;
+#if DEBUG_ENABLED
+        Debug(_("GeoIP: Using location-specific IPv6 for rr %u: %s"), r->id, data_value);
+#endif
+      }
+    }
+  }
+
+  if (inet_pton(AF_INET6, data_value, (void *)&addr) <= 0) {
     dnserror(t, DNS_RCODE_SERVFAIL, ERR_INVALID_ADDRESS);
     return rr_error(r->id, _("rr %u: %s (AAAA %s) (address=\"%s\")"), r->id,
 		    _("invalid address in \"data\""), _("record"), (char*)MYDNS_RR_DATA_VALUE(rr));
@@ -532,6 +575,11 @@ reply_add_aaaa(TASK *t, RR *r) {
   DNS_PUT16(dest, size);
   memcpy(dest, &addr, size);
   dest += size;
+
+  /* Free geo_data if allocated */
+  if (geo_data) {
+    free(geo_data);
+  }
 
   return (0);
 }
@@ -920,6 +968,38 @@ reply_add_txt(TASK *t, RR *r) {
 
 
 /**************************************************************************************************
+	REPLY_ADD_OPAQUE
+	Adds a generic record with opaque data (for modern record types).
+	Treats the data field as raw text/data to be returned as-is.
+	Unlike TXT records, does not add a length prefix before the data.
+**************************************************************************************************/
+static inline int
+reply_add_opaque(TASK *t, RR *r, dns_qtype_t qtype, const char *desc) {
+  char		*dest = NULL;
+  size_t	size = 0;
+  size_t	len = 0;
+  MYDNS_RR	*rr = (MYDNS_RR *)r->rr;
+
+  len = MYDNS_RR_DATA_LENGTH(rr);
+
+  if (reply_start_rr(t, r, (char*)r->name, qtype, rr->ttl, desc) < 0)
+    return (-1);
+
+  size = len;
+  r->length += SIZE16 + size;
+
+  if (!(dest = rdata_enlarge(t, SIZE16 + size)))
+    return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
+
+  DNS_PUT16(dest, size);
+  memcpy(dest, MYDNS_RR_DATA_VALUE(rr), len);
+  dest += len;
+  return (0);
+}
+/*--- reply_add_opaque() ------------------------------------------------------------------------*/
+
+
+/**************************************************************************************************
 	REPLY_PROCESS_RRLIST
 	Adds each resource record found in `rrlist' to the reply.
 **************************************************************************************************/
@@ -1136,8 +1216,8 @@ reply_process_rrlist(TASK *t, RRLIST *rrlist) {
 	  break;
 
 	case DNS_QTYPE_CERT:
-	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
-		_("unsupported resource record type"));
+	  if (reply_add_opaque(t, r, DNS_QTYPE_CERT, "CERT") < 0)
+	    return (-1);
 	  break;
 
 	case DNS_QTYPE_A6:
@@ -1146,8 +1226,8 @@ reply_process_rrlist(TASK *t, RRLIST *rrlist) {
 	  break;
 
 	case DNS_QTYPE_DNAME:
-	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
-		_("unsupported resource record type"));
+	  if (reply_add_opaque(t, r, DNS_QTYPE_DNAME, "DNAME") < 0)
+	    return (-1);
 	  break;
 
 	case DNS_QTYPE_SINK:
@@ -1166,13 +1246,13 @@ reply_process_rrlist(TASK *t, RRLIST *rrlist) {
 	  break;
 
 	case DNS_QTYPE_DS:
-	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
-		_("unsupported resource record type"));
+	  if (reply_add_opaque(t, r, DNS_QTYPE_DS, "DS") < 0)
+	    return (-1);
 	  break;
 
 	case DNS_QTYPE_SSHFP:
-	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
-		_("unsupported resource record type"));
+	  if (reply_add_opaque(t, r, DNS_QTYPE_SSHFP, "SSHFP") < 0)
+	    return (-1);
 	  break;
 
 	case DNS_QTYPE_IPSECKEY:
@@ -1181,18 +1261,18 @@ reply_process_rrlist(TASK *t, RRLIST *rrlist) {
 	  break;
 
 	case DNS_QTYPE_RRSIG:
-	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
-		_("unsupported resource record type"));
+	  if (reply_add_opaque(t, r, DNS_QTYPE_RRSIG, "RRSIG") < 0)
+	    return (-1);
 	  break;
 
 	case DNS_QTYPE_NSEC:
-	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
-		_("unsupported resource record type"));
+	  if (reply_add_opaque(t, r, DNS_QTYPE_NSEC, "NSEC") < 0)
+	    return (-1);
 	  break;
 
 	case DNS_QTYPE_DNSKEY:
-	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
-		_("unsupported resource record type"));
+	  if (reply_add_opaque(t, r, DNS_QTYPE_DNSKEY, "DNSKEY") < 0)
+	    return (-1);
 	  break;
 
 	case DNS_QTYPE_DHCID:
@@ -1201,13 +1281,38 @@ reply_process_rrlist(TASK *t, RRLIST *rrlist) {
 	  break;
 
 	case DNS_QTYPE_NSEC3:
-	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
-		_("unsupported resource record type"));
+	  if (reply_add_opaque(t, r, DNS_QTYPE_NSEC3, "NSEC3") < 0)
+	    return (-1);
 	  break;
 
 	case DNS_QTYPE_NSEC3PARAM:
-	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
-		_("unsupported resource record type"));
+	  if (reply_add_opaque(t, r, DNS_QTYPE_NSEC3PARAM, "NSEC3PARAM") < 0)
+	    return (-1);
+	  break;
+
+	case DNS_QTYPE_TLSA:
+	  if (reply_add_opaque(t, r, DNS_QTYPE_TLSA, "TLSA") < 0)
+	    return (-1);
+	  break;
+
+	case DNS_QTYPE_SMIMEA:
+	  if (reply_add_opaque(t, r, DNS_QTYPE_SMIMEA, "SMIMEA") < 0)
+	    return (-1);
+	  break;
+
+	case DNS_QTYPE_OPENPGPKEY:
+	  if (reply_add_opaque(t, r, DNS_QTYPE_OPENPGPKEY, "OPENPGPKEY") < 0)
+	    return (-1);
+	  break;
+
+	case DNS_QTYPE_SVCB:
+	  if (reply_add_opaque(t, r, DNS_QTYPE_SVCB, "SVCB") < 0)
+	    return (-1);
+	  break;
+
+	case DNS_QTYPE_HTTPS:
+	  if (reply_add_opaque(t, r, DNS_QTYPE_HTTPS, "HTTPS") < 0)
+	    return (-1);
 	  break;
 
 	case DNS_QTYPE_HIP:
@@ -1268,6 +1373,16 @@ reply_process_rrlist(TASK *t, RRLIST *rrlist) {
 	case DNS_QTYPE_MAILA:
 	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
 		_("unsupported resource record type"));
+	  break;
+
+	case DNS_QTYPE_URI:
+	  if (reply_add_opaque(t, r, DNS_QTYPE_URI, "URI") < 0)
+	    return (-1);
+	  break;
+
+	case DNS_QTYPE_CAA:
+	  if (reply_add_opaque(t, r, DNS_QTYPE_CAA, "CAA") < 0)
+	    return (-1);
 	  break;
 
 	case DNS_QTYPE_ANY:

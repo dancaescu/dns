@@ -25,6 +25,7 @@ QUEUE 		*TaskArray[PERIODIC_TASK+1][LOW_PRIORITY_TASK+1];
 
 struct timeval	current_tick;			/* Current micro-second time */
 time_t		current_time;			/* Current time */
+GEOIP_CTX	*GeoIP = NULL;			/* GeoIP context */
 
 static int	servers = 0;			/* Number of server processes to run */
 ARRAY		*Servers = NULL;
@@ -624,6 +625,12 @@ named_shutdown(int signo) {
   cache_empty(NegativeCache);
 #endif
   cache_empty(ReplyCache);
+
+  /* Free GeoIP context */
+  if (GeoIP) {
+    geoip_free(GeoIP);
+    GeoIP = NULL;
+  }
 
   /* Close listening FDs - do not sockclose these are shared with other processes */
   for (n = 0; n < num_tcp4_fd; n++)
@@ -1581,6 +1588,14 @@ main(int argc, char **argv)
   conf_set_logging();
   db_connect();
   create_pidfile();					/* Create PID file */
+
+  /* Initialize GeoIP */
+  GeoIP = geoip_init(sql);
+  if (!GeoIP) {
+    Warnx(_("GeoIP initialization failed - geographic features disabled"));
+  } else {
+    Notice(_("GeoIP initialized successfully"));
+  }
 
   for (i = NORMAL_TASK; i <= PERIODIC_TASK; i++) {
     for (j = HIGH_PRIORITY_TASK; j <= LOW_PRIORITY_TASK; j ++) {

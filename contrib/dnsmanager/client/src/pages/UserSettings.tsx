@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Checkbox } from "../components/ui/checkbox";
 import { apiRequest } from "../lib/api";
 import { toast } from "../components/ui/toast";
+import { Layout } from "../components/Layout";
 
 interface Token {
   id: number;
@@ -215,23 +216,12 @@ export function UserSettings({ user, onLogout }: { user: any; onLogout: () => vo
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-4">
-        <div>
-          <h1 className="text-xl font-semibold">My Settings</h1>
-          <p className="text-sm text-muted-foreground">Manage your profile and API tokens</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => navigate("/")}>
-            Back to Dashboard
-          </Button>
-          <Button variant="outline" onClick={onLogout}>
-            Logout
-          </Button>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-4xl space-y-6 px-4 py-6">
+    <Layout
+      user={user}
+      onLogout={onLogout}
+      breadcrumbs={[{ label: "My Settings" }]}
+    >
+      <div className="mx-auto max-w-7xl space-y-6">
         <Tabs defaultValue="profile">
           <TabsList>
             <TabsTrigger value="profile">Profile</TabsTrigger>
@@ -557,7 +547,7 @@ export function UserSettings({ user, onLogout }: { user: any; onLogout: () => vo
             </Card>
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </Layout>
   );
 }

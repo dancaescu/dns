@@ -334,8 +334,14 @@ typedef enum							/* Query types */
 	DNS_QTYPE_DHCID			= 49,
 	DNS_QTYPE_NSEC3			= 50,
 	DNS_QTYPE_NSEC3PARAM		= 51,
+	DNS_QTYPE_TLSA			= 52,			/* DANE TLS Certificate Association */
+	DNS_QTYPE_SMIMEA		= 53,			/* S/MIME Certificate Association */
 
 	DNS_QTYPE_HIP			= 55,
+
+	DNS_QTYPE_OPENPGPKEY		= 61,			/* OpenPGP Key */
+	DNS_QTYPE_SVCB			= 64,			/* Service Binding */
+	DNS_QTYPE_HTTPS			= 65,			/* HTTPS Service Binding */
 
 	DNS_QTYPE_SPF			= 99,
 	DNS_QTYPE_UINFO			= 100,
@@ -350,6 +356,8 @@ typedef enum							/* Query types */
 	DNS_QTYPE_MAILB			= 253,			/* Transfer mailbox records */
 	DNS_QTYPE_MAILA			= 254,			/* Transfer mail agent records */
 	DNS_QTYPE_ANY			= 255,			/* Any */
+	DNS_QTYPE_URI			= 256,			/* Uniform Resource Identifier */
+	DNS_QTYPE_CAA			= 257,			/* Certificate Authority Authorization */
 
 	DNS_QTYPE_TA			= 32768,
 	DNS_QTYPE_DLV			= 32769,

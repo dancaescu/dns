@@ -6,7 +6,7 @@ import { Button } from "../components/ui/button";
 import { apiRequest } from "../lib/api";
 
 interface Props {
-  onSuccess: (token: string, user: { id: number; username: string; email: string; role: string }) => void;
+  onSuccess: (token: string, user: { id: number; username: string; email: string; role: "superadmin" | "account_admin" | "user" }) => void;
 }
 
 interface LoginResponse {
@@ -20,7 +20,7 @@ interface LoginResponse {
     username: string;
     email: string;
     full_name?: string;
-    role: string;
+    role: "superadmin" | "account_admin" | "user";
   };
   sessionToken?: string;
 }

@@ -1,5 +1,6 @@
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
+import { Settings, LifeBuoy, LogOut } from "lucide-react";
 
 interface User {
   id: number;
@@ -9,71 +10,45 @@ interface User {
 }
 
 interface UnifiedHeaderProps {
-  title: string;
+  title?: string;
   subtitle?: string;
-  showBackButton?: boolean;
   onLogout: () => void;
   onSupportClick?: () => void;
   user?: User | null;
 }
 
-export function UnifiedHeader({ title, subtitle, showBackButton = false, onLogout, onSupportClick, user }: UnifiedHeaderProps) {
+export function UnifiedHeader({ title, subtitle, onLogout, onSupportClick, user }: UnifiedHeaderProps) {
   const navigate = useNavigate();
 
-  const isSuperadmin = user?.role === "superadmin";
-  const isAccountAdmin = user?.role === "account_admin";
-  const isAdmin = isSuperadmin || isAccountAdmin;
-
   return (
-    <header className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-3 border-b border-border/50 bg-white/80 backdrop-blur-lg px-8 py-5 elevation-2">
-      <div className="flex items-center gap-4">
-        {showBackButton && (
-          <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
-            Back
-          </Button>
-        )}
+    <header className="sticky top-0 z-50 flex items-center justify-between border-b border-border/50 bg-white/80 backdrop-blur-lg px-8 py-4 elevation-2">
+      {/* Page Title (optional, can be hidden if using breadcrumbs) */}
+      {title && (
         <div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">{title}</h1>
+          <h1 className="text-xl font-bold text-gray-900">{title}</h1>
           {subtitle && <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
         </div>
-      </div>
+      )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => navigate("/")}>
-          Dashboard
-        </Button>
+      {/* Spacer when no title */}
+      {!title && <div />}
 
-        <Button variant="outline" size="sm" onClick={() => navigate("/api-docs")}>
-          API Docs
-        </Button>
-
-        <Button variant="outline" size="sm" onClick={() => navigate("/api-tokens")}>
-          API Tokens
-        </Button>
-
-        <Button variant="outline" size="sm" onClick={() => navigate("/my-settings")}>
+      {/* User Actions */}
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/my-settings")} className="gap-2">
+          <Settings className="h-4 w-4" />
           My Settings
         </Button>
 
         {onSupportClick && (
-          <Button variant="outline" size="sm" onClick={onSupportClick}>
+          <Button variant="ghost" size="sm" onClick={onSupportClick} className="gap-2">
+            <LifeBuoy className="h-4 w-4" />
             Support
           </Button>
         )}
 
-        {isAdmin && (
-          <Button variant="outline" size="sm" onClick={() => navigate("/users")}>
-            Users
-          </Button>
-        )}
-
-        {isSuperadmin && (
-          <Button variant="outline" size="sm" onClick={() => navigate("/settings")}>
-            Settings
-          </Button>
-        )}
-
-        <Button variant="ghost" size="sm" onClick={onLogout}>
+        <Button variant="ghost" size="sm" onClick={onLogout} className="gap-2">
+          <LogOut className="h-4 w-4" />
           Logout
         </Button>
       </div>

@@ -76,6 +76,48 @@ read_udp_query(int fd, int family) {
   if (!(t = IOtask_init(HIGH_PRIORITY_TASK, NEED_ANSWER, fd, SOCK_DGRAM, family, &addr)))
     return (TASK_FAILED);
 
+  /* GeoIP lookup */
+  if (GeoIP) {
+    const char *country_code;
+    char client_ip_str[INET6_ADDRSTRLEN];
+
+    /* Extract client IP address */
+    if (family == AF_INET) {
+      inet_ntop(AF_INET, &t->addr4.sin_addr, client_ip_str, sizeof(client_ip_str));
+    } else {
+#if HAVE_IPV6
+      inet_ntop(AF_INET6, &t->addr6.sin6_addr, client_ip_str, sizeof(client_ip_str));
+#else
+      client_ip_str[0] = '\0';
+#endif
+    }
+
+    strncpy(t->client_ip, client_ip_str, sizeof(t->client_ip) - 1);
+    t->client_ip[sizeof(t->client_ip) - 1] = '\0';
+
+    /* Lookup country and sensor */
+    country_code = geoip_lookup_country(GeoIP, client_ip_str);
+    if (country_code) {
+      t->client_sensor_id = geoip_get_sensor_for_country(GeoIP, country_code);
+      if (t->client_sensor_id <= 0) {
+        /* Use default sensor if no mapping found */
+        t->client_sensor_id = geoip_get_default_sensor(GeoIP);
+      }
+    } else {
+      /* Use default sensor if GeoIP lookup failed */
+      t->client_sensor_id = geoip_get_default_sensor(GeoIP);
+    }
+
+#if DEBUG_ENABLED
+    if (t->client_sensor_id > 0) {
+      Debug(_("GeoIP: client %s -> sensor %d"), client_ip_str, t->client_sensor_id);
+    }
+#endif
+  } else {
+    t->client_ip[0] = '\0';
+    t->client_sensor_id = 0;
+  }
+
 #if DEBUG_ENABLED && DEBUG_UDP
   DebugX("udp", 1, "%s: %d %s", clientaddr(t), len, _("UDP octets in"));
 #endif

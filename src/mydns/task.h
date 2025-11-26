@@ -245,6 +245,10 @@ typedef struct _named_task {
 
   int			update_done;		/* Did we do any dynamic updates? */
   int			info_already_out;	/* Has the info already been output? */
+
+  /* GeoIP fields */
+  char			client_ip[46];		/* Client IP address (IPv4 or IPv6) */
+  int			client_sensor_id;	/* Geographic sensor ID for client */
 } TASK;
 
 #endif /* !_MYDNS_TASK_H */
