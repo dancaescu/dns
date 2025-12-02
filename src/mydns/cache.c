@@ -565,6 +565,15 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
     }
 
     /* Not in memzone, try to load from database */
+    /* MySQL-free mode: Skip database lookup if no SQL connection */
+    if (!sql) {
+#if DEBUG_ENABLED && DEBUG_CACHE
+      DebugX("cache", 1, _("%s: MySQL-free mode - SOA not in memzone, will try DNS cache: %s"), desctask(t), name);
+#endif
+      /* Return NULL to allow recursive query forwarding */
+      return (NULL);
+    }
+
 #if DEBUG_ENABLED && DEBUG_SQL_QUERIES
     DebugX("cache", 1, _("%s: SQL query: table \"%s\", origin=\"%s\""), desctask(t), mydns_soa_table_name, name);
 #endif
