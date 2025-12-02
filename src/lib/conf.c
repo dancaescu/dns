@@ -429,8 +429,18 @@ conf_set_recursive(void) {
   char		addr[512];
   int		port = 53;
 
-  if (!address || !address[0])
+  /* MySQL-free mode: Enable recursion if DNS cache is enabled, even without explicit recursive server */
+  if ((!address || !address[0])) {
+    const char *cache_enabled = conf_get(&Conf, "dns-cache-enabled", NULL);
+    if (cache_enabled && (strcasecmp(cache_enabled, "yes") == 0 || strcasecmp(cache_enabled, "true") == 0 || strcmp(cache_enabled, "1") == 0)) {
+      forward_recursive = 1;
+#if DEBUG_ENABLED && DEBUG_CONF
+      DebugX("conf", 1, _("recursive forwarding enabled via DNS cache config"));
+#endif
+      return;
+    }
     return;
+  }
   strncpy(addr, address, sizeof(addr)-1);
 
 #if HAVE_IPV6
@@ -476,17 +486,6 @@ conf_set_recursive(void) {
 #if HAVE_IPV6
   }
 #endif
-
-  /* MySQL-free mode: Enable recursion if DNS cache is enabled in config */
-  if (!forward_recursive) {
-    const char *cache_enabled = conf_get(&Conf, "dns-cache-enabled", NULL);
-    if (cache_enabled && (strcasecmp(cache_enabled, "yes") == 0 || strcasecmp(cache_enabled, "true") == 0 || strcmp(cache_enabled, "1") == 0)) {
-      forward_recursive = 1;
-#if DEBUG_ENABLED && DEBUG_CONF
-      DebugX("conf", 1, _("recursive forwarding enabled via DNS cache config"));
-#endif
-    }
-  }
 
   if (!forward_recursive) return;
 
