@@ -1608,8 +1608,13 @@ main(int argc, char **argv)
   init_rlimits();
 
   Warnx(_("DEBUG: main() after init_rlimits()"));
-  if (opt_daemon)					/* Move into background if requested */
+  if (opt_daemon) {					/* Move into background if requested */
+    Warnx(_("DEBUG: main() opt_daemon=1, about to call become_daemon()"));
     become_daemon();
+    Warnx(_("DEBUG: main() after become_daemon()"));
+  } else {
+    Warnx(_("DEBUG: main() opt_daemon=0, NOT becoming daemon"));
+  }
 
   Warnx(_("DEBUG: main() about to call conf_set_logging()"));
   conf_set_logging();
@@ -1620,11 +1625,16 @@ main(int argc, char **argv)
   /* Initialize GeoIP */
   Warnx(_("DEBUG: main() about to call geoip_init()"));
   GeoIP = geoip_init(sql);
+  Warnx(_("DEBUG: main() after geoip_init(), GeoIP=%p"), GeoIP);
   if (!GeoIP) {
+    Warnx(_("DEBUG: main() GeoIP is NULL"));
     Warnx(_("GeoIP initialization failed - geographic features disabled"));
   } else {
+    Warnx(_("DEBUG: main() GeoIP is NOT NULL, about to call Notice()"));
     Notice(_("GeoIP initialized successfully"));
+    Warnx(_("DEBUG: main() after Notice()"));
   }
+  Warnx(_("DEBUG: main() after GeoIP if/else block"))
 
   /* Initialize in-memory zone storage (attach to existing shared memory created by mydns-xfer) */
   Warnx(_("DEBUG: main() about to call memzone_init()"));
