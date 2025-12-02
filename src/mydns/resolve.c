@@ -83,6 +83,15 @@ resolve_soa(TASK *t, datasection_t section, char *fqdn, int level) {
       t->hdr.aa = 1;
     return (TASK_EXECUTED);
   }
+
+  /* MySQL-free mode: If no SOA found and DNS cache available, try recursive resolution */
+  if (section == ANSWER && DnsCache && t->hdr.rd) {
+#if DEBUG_ENABLED && DEBUG_RESOLVE
+    DebugX("resolve", 1, _("%s: No SOA found for %s, trying DNS cache"), desctask(t), fqdn);
+#endif
+    return recursive_fwd(t);
+  }
+
   return (section == ANSWER ? dnserror(t, DNS_RCODE_REFUSED, ERR_ZONE_NOT_FOUND) : TASK_EXECUTED);
 }
 /*--- resolve_soa() -----------------------------------------------------------------------------*/
