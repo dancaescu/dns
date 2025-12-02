@@ -28,7 +28,7 @@
 	Defining this and recompiling will NOT let you import tinydns-data files! */
 #define TINYDNS_IMPORT
 
-extern CONF *Conf;												/* Configuration data */
+extern MYDNS_CONFIG *Conf;												/* Configuration data */
 
 extern void load_config(void);
 extern void db_connect(void);
