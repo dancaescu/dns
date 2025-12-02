@@ -39,13 +39,19 @@ db_connect(void) {
   const char *policy = conf_get(&Conf, "db-host-policy", NULL);
   size_t i;
 
-  /* MySQL-free slave mode: Skip database connection if no database configured */
-  if (!database || !*database) {
-    Notice(_("No database configured - running in MySQL-free mode with memzone"));
-    return;
+  host_values[0] = conf_get(&Conf, "db-host", NULL);
+
+  /* MySQL-free slave mode: Skip database connection if no db-host configured */
+  if (!host_values[0] || !*host_values[0] || strcmp(host_values[0], "localhost") == 0) {
+    /* No db-host configured, or only localhost (which won't work without MySQL running) */
+    /* Check if database is explicitly set to something other than default */
+    if (!database || !*database || strcmp(database, "mydns") == 0) {
+      Notice(_("No database host configured - running in MySQL-free mode with memzone"));
+      return;
+    }
   }
 
-  host_values[0] = conf_get(&Conf, "db-host", NULL);
+
   host_values[1] = conf_get(&Conf, "db-host2", NULL);
   host_values[2] = conf_get(&Conf, "db-host3", NULL);
   host_values[3] = conf_get(&Conf, "db-host4", NULL);
