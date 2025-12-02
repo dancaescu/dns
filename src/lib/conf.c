@@ -498,8 +498,13 @@ load_config(void) {
   struct passwd *pwd = NULL;
   struct group	*grp = NULL;
 
+  Warnx(_("DEBUG: load_config() ENTRY"));
+
   /* Load config */
+  Warnx(_("DEBUG: load_config() about to call conf_load()"));
   conf_load(&Conf, opt_conf);
+  Warnx(_("DEBUG: load_config() after conf_load()"));
+
 
   /* Set defaults */
   for (n = 0; defConfig[n].name; n++) {
@@ -532,12 +537,14 @@ load_config(void) {
 #endif
 
   /* Load user/group perms */
+  Warnx(_("DEBUG: load_config() about to getpwnam()"));
   if (!(pwd = getpwnam(conf_get(&Conf, "user", NULL))))
     Err(_("error loading uid for user `%s'"), conf_get(&Conf, "user", NULL));
   perms_uid = pwd->pw_uid;
   perms_gid = pwd->pw_gid;
   memset(pwd, 0, sizeof(struct passwd));
 
+  Warnx(_("DEBUG: load_config() about to getgrnam()"));
   if (!(grp = getgrnam(conf_get(&Conf, "group", NULL))) && !(grp = getgrnam("nobody"))) {
     Warnx(_("error loading gid for group `%s'"), conf_get(&Conf, "group", NULL));
     Warnx(_("using gid %lu from user `%s'"), (unsigned long)perms_gid, conf_get(&Conf, "user", NULL));
@@ -546,9 +553,12 @@ load_config(void) {
     memset(grp, 0, sizeof(struct group));
   }
 
+  Warnx(_("DEBUG: load_config() about to conf_set_logging()"));
   /* We call conf_set_logging() again after moving into background, but it's called here
      to report on errors. */
   conf_set_logging();
+  Warnx(_("DEBUG: load_config() after conf_set_logging()"));
+
 
   /* Set global options */
   task_timeout = atou(conf_get(&Conf, "timeout", NULL));
@@ -620,24 +630,30 @@ load_config(void) {
   ignore_minimum = GETBOOL(conf_get(&Conf, "ignore-minimum", NULL));
 
   /* Set table names if provided */
+  Warnx(_("DEBUG: load_config() about to set table names"));
   mydns_set_soa_table_name(conf_get(&Conf, "soa-table", NULL));
   mydns_set_rr_table_name(conf_get(&Conf, "rr-table", NULL));
   mydns_set_cf_soa_table_name(conf_get(&Conf, "cloudflare-soa-table", NULL));
   mydns_set_cf_rr_table_name(conf_get(&Conf, "cloudflare-rr-table", NULL));
   mydns_set_cf_default_ns(conf_get(&Conf, "cloudflare-default-ns", NULL));
   mydns_set_cf_default_mbox(conf_get(&Conf, "cloudflare-default-mbox", NULL));
+  Warnx(_("DEBUG: load_config() about to mydns_update_cloudflare_state()"));
   mydns_update_cloudflare_state();
+  Warnx(_("DEBUG: load_config() after mydns_update_cloudflare_state()"));
+
 
   /* Set additional where clauses if provided */
   mydns_set_soa_where_clause(conf_get(&Conf, "soa-where", NULL));
   mydns_set_rr_where_clause(conf_get(&Conf, "rr-where", NULL));
 
   /* Set recursive server if specified */
+  Warnx(_("DEBUG: load_config() about to conf_set_recursive()"));
   conf_set_recursive();
 
 #ifdef DN_COLUMN_NAMES
   dn_default_ns = conf_get(&Conf, "default-ns", NULL);
 #endif
+  Warnx(_("DEBUG: load_config() EXIT"));
 }
 /*--- load_config() -----------------------------------------------------------------------------*/
 
