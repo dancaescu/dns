@@ -28,6 +28,8 @@ typedef struct _named_queue *QUEUEP;
 #include "mydns.h"
 #include "geoip.h"
 #include "memzone.h"
+#include "dns-cache.h"
+#include "doh.h"
 #include "task.h"
 #include "cache.h"
 
@@ -122,6 +124,8 @@ extern CACHE	*Cache;				/* Zone cache */
 extern time_t	current_time;			/* Current time */
 extern GEOIP_CTX	*GeoIP;			/* GeoIP context */
 extern memzone_ctx_t	*Memzone;		/* In-memory zone storage for AXFR slaves */
+extern dnscache_ctx_t	*DnsCache;		/* DNS caching/recursive resolver */
+extern doh_ctx_t	*DoH;			/* DNS over HTTPS server */
 
 #if ALIAS_ENABLED
 /* alias.c */
