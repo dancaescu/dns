@@ -399,15 +399,15 @@ typedef struct _conflist {
   const char	*altname;	/* Alternate name for this option */
   int		defaulted;	/* This variable was defaulted; not actually in config file */
   struct _conflist *next;
-} CONF;
+} MYDNS_CONFIG;
 
 #define	CONF_FS_CHAR	'\034'
 #define	CONF_FS_STR		"\034"
 
-extern void		conf_clobber(CONF **, const char *, const char *);
-extern void		conf_set(CONF **, const char *, const char *, int);
-extern const char	*conf_get(CONF **, const char *, int *);
-extern void		conf_load(CONF **, const char *);
+extern void		conf_clobber(MYDNS_CONFIG **, const char *, const char *);
+extern void		conf_set(MYDNS_CONFIG **, const char *, const char *, int);
+extern const char	*conf_get(MYDNS_CONFIG **, const char *, int *);
+extern void		conf_load(MYDNS_CONFIG **, const char *);
 
 #define MEMMAN 1
 
@@ -494,7 +494,7 @@ extern void	_mydns_release(void *, size_t, arena_t, const char *, int);
 /* Convert str to unsigned int */
 #define atou(s) (uint32_t)strtoul(s, (char **)NULL, 10)
 
-extern CONF	*Conf;				/* Config file data */
+extern MYDNS_CONFIG	*Conf;				/* Config file data */
 
 /*
 **  error.c

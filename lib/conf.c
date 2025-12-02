@@ -21,7 +21,7 @@
 
 #include "mydnsutil.h"
 
-CONF		*Conf = (CONF *)NULL;			/* Config options */
+MYDNS_CONFIG		*Conf = (MYDNS_CONFIG *)NULL;			/* Config options */
 
 /**************************************************************************************************
 	CONF_TRIM_COMMENTS
@@ -113,8 +113,8 @@ conf_get_option(char *str, char **namep, char **valuep) {
 	Overwrite a value if defaulted.
 **************************************************************************************************/
 void
-conf_clobber(CONF **confp, const char *name, const char *value) {
-  CONF *conf = *confp, *c;				/* Start of list/found item */
+conf_clobber(MYDNS_CONFIG **confp, const char *name, const char *value) {
+  MYDNS_CONFIG *conf = *confp, *c;				/* Start of list/found item */
 
   if (!name || !value)
     return;
@@ -133,10 +133,10 @@ conf_clobber(CONF **confp, const char *name, const char *value) {
 	Sets a configuration value.
 **************************************************************************************************/
 void
-conf_set(CONF **confp, const char *name, const char *value, int defaulted) {
-  CONF *conf = *confp;								/* Start of list */
-  CONF *new;									/* New item to add */
-  register CONF *c;
+conf_set(MYDNS_CONFIG **confp, const char *name, const char *value, int defaulted) {
+  MYDNS_CONFIG *conf = *confp;								/* Start of list */
+  MYDNS_CONFIG *new;									/* New item to add */
+  register MYDNS_CONFIG *c;
 
   if (!name)
     return;
@@ -160,7 +160,7 @@ conf_set(CONF **confp, const char *name, const char *value, int defaulted) {
     }
 
   /* Add new item to array */
-  new = (CONF *)ALLOCATE(sizeof(CONF), CONF);
+  new = (MYDNS_CONFIG *)ALLOCATE(sizeof(MYDNS_CONFIG), MYDNS_CONFIG);
   new->name = STRDUP(name);
   new->value = (char*)((value) ? STRDUP(value) : NULL);
   new->defaulted = defaulted;
@@ -177,9 +177,9 @@ conf_set(CONF **confp, const char *name, const char *value, int defaulted) {
 	Returns the value associated with the specified name.
 **************************************************************************************************/
 const char *
-conf_get(CONF **confp, const char *name, int *defaulted) {
-  CONF *conf = *confp;							/* Start of list */
-  register CONF *c;
+conf_get(MYDNS_CONFIG **confp, const char *name, int *defaulted) {
+  MYDNS_CONFIG *conf = *confp;							/* Start of list */
+  register MYDNS_CONFIG *c;
 
   if (defaulted)
     *defaulted = 1;
@@ -201,11 +201,11 @@ conf_get(CONF **confp, const char *name, int *defaulted) {
 	Load the MyDNS configuration file.
 **************************************************************************************************/
 void
-conf_load(CONF **confp, const char *filename) {
+conf_load(MYDNS_CONFIG **confp, const char *filename) {
   FILE	*fp;							/* Input file pointer */
   char	linebuf[BUFSIZ];					/* Input line buffer */
   char	*name, *value;						/* Name and value from `linebuf' */
-  CONF	*conf = *confp;						/* Config list */
+  MYDNS_CONFIG	*conf = *confp;						/* Config list */
   int	lineno = 0;						/* Current line number in config */
   struct stat st;						/* File stat for conf file */
 
