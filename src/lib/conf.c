@@ -477,6 +477,14 @@ conf_set_recursive(void) {
   }
 #endif
 
+  /* MySQL-free mode: Enable recursion if DNS cache is available */
+  if (!forward_recursive && DnsCache && DnsCache->config.enabled) {
+    forward_recursive = 1;
+#if DEBUG_ENABLED && DEBUG_CONF
+    DebugX("conf", 1, _("recursive forwarding enabled via DNS cache"));
+#endif
+  }
+
   if (!forward_recursive) return;
 
   recursion_timeout = atou(conf_get(&Conf, "recursive-timeout", NULL));
