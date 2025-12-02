@@ -19,6 +19,8 @@
 **************************************************************************************************/
 
 #include "named.h"
+#include "../lib/tsig.h"
+#include "../lib/dnsupdate.h"
 
 /* Make this nonzero to enable debugging for this source file */
 #define	DEBUG_IXFR	1
@@ -113,6 +115,275 @@ ixfr_gobble_authority_rr(TASK *t, uchar *query, size_t querylen, uchar *current,
   return src;
 }
 
+/**************************************************************************************************
+	PARSE_TSIG_FOR_IXFR
+	Parse TSIG record from IXFR request Additional section.
+	(Reuses same logic as AXFR)
+**************************************************************************************************/
+static int
+parse_tsig_for_ixfr(TASK *t, char *key_name, size_t key_name_size,
+                    unsigned char *mac, size_t *mac_len,
+                    uint64_t *time_signed, uint16_t *fudge) {
+  const unsigned char *message = (const unsigned char *)t->query;
+  size_t message_len = t->len;
+  size_t offset = 12;  /* Start after DNS header */
+  int i;
+
+  if (!t->arcount || t->arcount == 0) {
+    return -1;  /* No Additional records */
+  }
+
+  /* Skip Question section */
+  for (i = 0; i < t->qdcount && offset < message_len; i++) {
+    while (offset < message_len) {
+      if (message[offset] == 0) {
+        offset++;
+        break;
+      }
+      if ((message[offset] & 0xC0) == 0xC0) {
+        offset += 2;
+        break;
+      }
+      offset += message[offset] + 1;
+    }
+    offset += 4;  /* Skip QTYPE + QCLASS */
+  }
+
+  /* Skip Answer section */
+  for (i = 0; i < t->ancount && offset < message_len; i++) {
+    while (offset < message_len) {
+      if (message[offset] == 0) {
+        offset++;
+        break;
+      }
+      if ((message[offset] & 0xC0) == 0xC0) {
+        offset += 2;
+        break;
+      }
+      offset += message[offset] + 1;
+    }
+    if (offset + 10 > message_len) return -1;
+    uint16_t rdlength = (message[offset + 8] << 8) | message[offset + 9];
+    offset += 10 + rdlength;
+  }
+
+  /* Skip Authority section */
+  for (i = 0; i < t->nscount && offset < message_len; i++) {
+    while (offset < message_len) {
+      if (message[offset] == 0) {
+        offset++;
+        break;
+      }
+      if ((message[offset] & 0xC0) == 0xC0) {
+        offset += 2;
+        break;
+      }
+      offset += message[offset] + 1;
+    }
+    if (offset + 10 > message_len) return -1;
+    uint16_t rdlength = (message[offset + 8] << 8) | message[offset + 9];
+    offset += 10 + rdlength;
+  }
+
+  /* Parse Additional section - TSIG should be last record */
+  for (i = 0; i < t->arcount && offset < message_len; i++) {
+    size_t name_start = offset;
+    size_t name_len = 0;
+
+    /* Parse NAME */
+    while (offset < message_len) {
+      if (message[offset] == 0) {
+        offset++;
+        break;
+      }
+      if ((message[offset] & 0xC0) == 0xC0) {
+        offset += 2;
+        break;
+      }
+      offset += message[offset] + 1;
+    }
+    name_len = offset - name_start;
+
+    if (offset + 10 > message_len) return -1;
+
+    uint16_t rtype = (message[offset] << 8) | message[offset + 1];
+    uint16_t rclass = (message[offset + 2] << 8) | message[offset + 3];
+    uint16_t rdlength = (message[offset + 8] << 8) | message[offset + 9];
+    offset += 10;
+
+    /* Check if this is a TSIG record (type 250, class ANY=255) */
+    if (rtype == 250 && rclass == 255) {
+      /* Extract key name */
+      size_t key_offset = 0;
+      size_t name_offset = name_start;
+      while (name_offset < name_start + name_len && key_offset < key_name_size - 1) {
+        if (message[name_offset] == 0) break;
+        if ((message[name_offset] & 0xC0) == 0xC0) break;
+
+        uint8_t label_len = message[name_offset++];
+        if (label_len > 0 && label_len <= 63) {
+          if (key_offset > 0 && key_offset < key_name_size - 1) {
+            key_name[key_offset++] = '.';
+          }
+          size_t copy_len = (label_len < (key_name_size - key_offset - 1)) ?
+                           label_len : (key_name_size - key_offset - 1);
+          memcpy(key_name + key_offset, message + name_offset, copy_len);
+          key_offset += copy_len;
+          name_offset += label_len;
+        }
+      }
+      key_name[key_offset] = '\0';
+
+      /* Parse TSIG RDATA */
+      /* Skip algorithm name */
+      while (offset < message_len && message[offset] != 0) {
+        if ((message[offset] & 0xC0) == 0xC0) {
+          offset += 2;
+          break;
+        }
+        offset += message[offset] + 1;
+      }
+      if (offset < message_len && message[offset] == 0) offset++;
+
+      if (offset + 10 > message_len) return -1;
+
+      /* Parse time signed (48-bit) */
+      *time_signed = 0;
+      for (int j = 0; j < 6; j++) {
+        *time_signed = (*time_signed << 8) | message[offset++];
+      }
+
+      /* Parse fudge (16-bit) */
+      *fudge = (message[offset] << 8) | message[offset + 1];
+      offset += 2;
+
+      /* Parse MAC size (16-bit) */
+      uint16_t mac_size = (message[offset] << 8) | message[offset + 1];
+      offset += 2;
+
+      /* Parse MAC */
+      if (mac_size > 64) mac_size = 64;
+      if (offset + mac_size > message_len) return -1;
+      memcpy(mac, message + offset, mac_size);
+      *mac_len = mac_size;
+
+      return 0;  /* Success */
+    }
+
+    offset += rdlength;
+  }
+
+  return -1;  /* No TSIG found */
+}
+
+/**************************************************************************************************
+	LOAD_TSIG_KEY_FOR_IXFR
+	Load TSIG key from database by name.
+**************************************************************************************************/
+static tsig_key_t *
+load_tsig_key_for_ixfr(TASK *t, const char *key_name) {
+  SQL_RES *res = NULL;
+  SQL_ROW row = NULL;
+  char *query = NULL;
+  size_t querylen = 0;
+  tsig_key_t *key = NULL;
+
+  if (!key_name || !strlen(key_name))
+    return NULL;
+
+  /* Query tsig_keys table */
+  querylen = sql_build_query(&query,
+    "SELECT name, algorithm, secret FROM tsig_keys WHERE name='%s' AND enabled=TRUE",
+    key_name);
+
+#if DEBUG_ENABLED && DEBUG_IXFR
+  DebugX("ixfr", 1, _("%s: TSIG KEY LOOKUP: %s"), desctask(t), query);
+#endif
+
+  res = sql_query(sql, query, querylen);
+  RELEASE(query);
+
+  if (!res) {
+    WarnSQL(sql, "%s: %s", desctask(t), _("error loading TSIG key"));
+    return NULL;
+  }
+
+  if ((row = sql_getrow(res, NULL))) {
+    /* Create TSIG key from database row */
+    key = tsig_key_create(row[0], row[1], row[2]);
+
+#if DEBUG_ENABLED && DEBUG_IXFR
+    DebugX("ixfr", 1, _("%s: Loaded TSIG key '%s' algorithm '%s'"),
+           desctask(t), row[0], row[1]);
+#endif
+  }
+
+  sql_free(res);
+  return key;
+}
+
+/**************************************************************************************************
+	VERIFY_TSIG_FOR_IXFR
+	Verify TSIG signature in IXFR request.
+**************************************************************************************************/
+static tsig_key_t *
+verify_tsig_for_ixfr(TASK *t, unsigned char *request_mac_out, size_t *request_mac_len_out) {
+  char key_name[256];
+  unsigned char mac[64];
+  size_t mac_len = 0;
+  uint64_t time_signed = 0;
+  uint16_t fudge = 300;
+  tsig_key_t *key = NULL;
+  time_t now = time(NULL);
+
+  /* Parse TSIG record from Additional section */
+  if (parse_tsig_for_ixfr(t, key_name, sizeof(key_name),
+                          mac, &mac_len, &time_signed, &fudge) != 0) {
+    /* No TSIG in request */
+    if (tsig_enforce_ixfr) {
+      dnserror(t, DNS_RCODE_REFUSED, ERR_ZONE_NOT_FOUND);
+      return NULL;
+    }
+    return NULL;  /* No TSIG, but not required */
+  }
+
+  /* Load TSIG key from database */
+  key = load_tsig_key_for_ixfr(t, key_name);
+  if (!key) {
+    Warnx(_("%s: Unknown TSIG key: %s"), desctask(t), key_name);
+    dnserror(t, DNS_RCODE_NOTAUTH, ERR_ZONE_NOT_FOUND);
+    return NULL;
+  }
+
+  /* Verify timestamp (within fudge factor) */
+  int64_t time_diff = (int64_t)now - (int64_t)time_signed;
+  if (time_diff < 0) time_diff = -time_diff;
+  if (time_diff > fudge) {
+    Warnx(_("%s: TSIG time check failed (diff=%ld, fudge=%u)"),
+          desctask(t), (long)time_diff, fudge);
+    tsig_key_free(key);
+    dnserror(t, DNS_RCODE_NOTAUTH, ERR_ZONE_NOT_FOUND);
+    return NULL;
+  }
+
+  /* Store request MAC for response signing */
+  if (request_mac_out && request_mac_len_out && mac_len > 0) {
+    memcpy(request_mac_out, mac, mac_len);
+    *request_mac_len_out = mac_len;
+  }
+
+  /* Verify MAC signature */
+  if (tsig_verify((unsigned char*)t->query, t->len, key, NULL, 0, NULL) != 0) {
+    Warnx(_("%s: TSIG MAC verification failed for IXFR: key=%s"), desctask(t), key_name);
+    tsig_key_free(key);
+    dnserror(t, DNS_RCODE_NOTAUTH, ERR_ZONE_NOT_FOUND);
+    return NULL;
+  }
+
+  Notice(_("%s: TSIG verified for IXFR: key=%s"), desctask(t), key_name);
+  return key;
+}
+
 taskexec_t
 ixfr(TASK * t, datasection_t section, dns_qtype_t qtype, char *fqdn, int truncateonly) {
   MYDNS_SOA	*soa = NULL;
@@ -121,6 +392,9 @@ ixfr(TASK * t, datasection_t section, dns_qtype_t qtype, char *fqdn, int truncat
   uchar		*src = query + DNS_HEADERSIZE;
   IQ		*q = NULL;
   task_error_t	errcode = 0;
+  tsig_key_t *tsig_key = NULL;
+  unsigned char request_mac[64];
+  size_t request_mac_len = 0;
 
 #if DEBUG_ENABLED && DEBUG_IXFR
   DebugX("ixfr", 1, "%s: ixfr(%s, %s, \"%s\", %d)", desctask(t),
@@ -147,6 +421,15 @@ ixfr(TASK * t, datasection_t section, dns_qtype_t qtype, char *fqdn, int truncat
     return (TASK_FAILED);
   }
 
+  /* Verify TSIG if present */
+  tsig_key = verify_tsig_for_ixfr(t, request_mac, &request_mac_len);
+
+  if (tsig_enforce_ixfr && !tsig_key) {
+    /* TSIG required but verification failed */
+    mydns_soa_free(soa);
+    return (TASK_FAILED);
+  }
+
 #if DEBUG_ENABLED && DEBUG_IXFR
   DebugX("ixfr", 1, _("%s: DNS IXFR: SOA id %u"), desctask(t), soa->id);
   DebugX("ixfr", 1, _("%s: DNS IXFR: QDCOUNT=%d (Query)"), desctask(t), t->qdcount);
@@ -170,9 +453,11 @@ ixfr(TASK * t, datasection_t section, dns_qtype_t qtype, char *fqdn, int truncat
     return formerr(t, DNS_RCODE_FORMERR, ERR_MULTI_QUESTIONS,
 		   _("ixfr query contains multiple questions"));
 
-  if (t->ancount || t->arcount)
+  if (t->ancount)
     return formerr(t, DNS_RCODE_FORMERR, ERR_MALFORMED_REQUEST,
-		   _("ixfr query has answer or additional data"));
+		   _("ixfr query has answer data"));
+
+  /* Additional section is allowed (for TSIG) */
 
   q = allocate_iq();
 
@@ -344,6 +629,48 @@ ixfr(TASK * t, datasection_t section, dns_qtype_t qtype, char *fqdn, int truncat
   free_iq(q);
 
   t->hdr.aa = 1;
+
+  /* Sign response with TSIG if request was signed */
+  if (tsig_key && request_mac_len > 0) {
+    /* Build reply first (if not already built) */
+    if (!t->reply || t->replylen == 0) {
+      build_reply(t, 0);
+    }
+
+    /* Allocate buffer for signed reply */
+    size_t max_tsig_len = 200;
+    char *signed_reply = ALLOCATE(t->replylen + max_tsig_len, char[]);
+    size_t new_len = 0;
+
+    if (signed_reply) {
+      memcpy(signed_reply, t->reply, t->replylen);
+
+      /* Sign the reply with request MAC (single packet, no chaining needed) */
+      if (tsig_sign((unsigned char*)signed_reply, t->replylen, t->replylen + max_tsig_len,
+                    tsig_key, request_mac, request_mac_len, &new_len) == 0) {
+
+        /* Replace reply with signed version */
+        RELEASE(t->reply);
+        t->reply = signed_reply;
+        t->replylen = new_len;
+
+#if DEBUG_ENABLED && DEBUG_IXFR
+        DebugX("ixfr", 1, _("%s: IXFR response signed with TSIG (%zu bytes)"),
+               desctask(t), new_len);
+#endif
+      } else {
+        /* Signing failed - send unsigned */
+        Warnx(_("%s: TSIG signing failed for IXFR response"), desctask(t));
+        RELEASE(signed_reply);
+      }
+    } else {
+      Warnx(_("%s: Failed to allocate buffer for TSIG signing"), desctask(t));
+    }
+
+    /* Free TSIG key */
+    tsig_key_free(tsig_key);
+    tsig_key = NULL;
+  }
 
   return (TASK_EXECUTED);
 }

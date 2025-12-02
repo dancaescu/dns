@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS zone_masters (
     -- Status tracking
     last_check TIMESTAMP NULL,
     last_transfer TIMESTAMP NULL,
+    last_notify TIMESTAMP NULL COMMENT 'Last NOTIFY received from master',
     transfer_failures INT UNSIGNED NOT NULL DEFAULT 0,
     last_error TEXT NULL,
 

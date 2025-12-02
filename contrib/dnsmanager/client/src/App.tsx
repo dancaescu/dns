@@ -9,6 +9,8 @@ import ApiDocs from "./pages/ApiDocs";
 import { ApiTokensPage } from "./pages/ApiTokensPage";
 import { UserSettings } from "./pages/UserSettings";
 import { GeoSensors } from "./pages/GeoSensors";
+import { DNSSECManagement } from "./pages/DNSSECManagement";
+import { ACLManagement } from "./pages/ACLManagement";
 import { getToken, setToken, logout, apiRequest, onTokenChange } from "./lib/api";
 
 interface User {
@@ -116,10 +118,12 @@ export default function App() {
       <Route path="/api-tokens" element={<ApiTokensPage onLogout={handleLogout} user={user} />} />
       <Route path="/my-settings" element={<UserSettings user={user} onLogout={handleLogout} />} />
       <Route path="/geosensors" element={<GeoSensors user={user} onLogout={handleLogout} />} />
+      <Route path="/dnssec" element={<DNSSECManagement user={user} onLogout={handleLogout} />} />
       {user?.role === "superadmin" && (
         <>
           <Route path="/users" element={<UserManagement onLogout={handleLogout} user={user} />} />
           <Route path="/settings" element={<Settings onLogout={handleLogout} user={user} />} />
+          <Route path="/acl" element={<ACLManagement onLogout={handleLogout} user={user} />} />
         </>
       )}
       {user?.role === "account_admin" && (

@@ -12,7 +12,12 @@ import logsRoutes from "./routes/logs.js";
 import publicApiRoutes from "./routes/publicApi.js";
 import permissionsRoutes from "./routes/permissions.js";
 import geosensorsRoutes from "./routes/geosensors.js";
+import dnssecRoutes from "./routes/dnssec.js";
+import aclRoutes from "./routes/acl.js";
+import userCloudflareRoutes from "./routes/userCloudflare.js";
+import zoneAclsRoutes from "./routes/zoneAcls.js";
 import { getActiveHost } from "./db.js";
+import { startWorker, stopWorker } from "./dnssec-worker.js";
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
@@ -40,6 +45,10 @@ app.use("/api/logs", logsRoutes);
 app.use("/api/v1", publicApiRoutes);
 app.use("/api/permissions", permissionsRoutes);
 app.use("/api/sensors", geosensorsRoutes);
+app.use("/api/dnssec", dnssecRoutes);
+app.use("/api/acl", aclRoutes);
+app.use("/api/user-cloudflare", userCloudflareRoutes);
+app.use("/api/zone-acls", zoneAclsRoutes);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
@@ -48,4 +57,21 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 app.listen(PORT, () => {
   console.log(`DNS Manager API listening on http://localhost:${PORT}`);
+
+  // Start DNSSEC signing worker
+  console.log("Starting DNSSEC signing worker...");
+  startWorker(30000); // Check queue every 30 seconds
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log("\nReceived SIGINT, shutting down gracefully...");
+  stopWorker();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log("\nReceived SIGTERM, shutting down gracefully...");
+  stopWorker();
+  process.exit(0);
 });

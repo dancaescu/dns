@@ -18,10 +18,10 @@
 ##	Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 ##
 
-AC_INIT(mydns, [1.2.8.33], [support@multitel.net])
+AC_INIT(mydns, [1.3.0], [support@multitel.net])
 AC_USE_SYSTEM_EXTENSIONS
 AC_PREREQ([2.60])
-AC_COPYRIGHT([Portions of this script are Copyright 2002-2005 Don Moore  2007-2009 Howard Wilkinson])
+AC_COPYRIGHT([Portions of this script are Copyright 2002-2005 Don Moore  2007-2009 Howard Wilkinson  2025 Dan Caescu])
 AM_INIT_AUTOMAKE([foreign 1.9.5 dist-bzip2])
 AM_CONFIG_HEADER(config.h)
 AC_CONFIG_MACRO_DIR([m4])

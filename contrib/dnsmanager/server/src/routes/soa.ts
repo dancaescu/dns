@@ -4,8 +4,24 @@ import { authenticate } from "../middleware.js";
 import { query, execute } from "../db.js";
 import { logAction } from "../auth.js";
 import { cloudflareCreateZone } from "../cloudflare.js";
+import { exec } from "child_process";
+import { promisify } from "util";
 
+const execAsync = promisify(exec);
 const router = Router();
+
+/**
+ * Trigger DNS NOTIFY for a zone using mydnsnotify utility
+ */
+async function triggerNotify(origin: string): Promise<void> {
+  try {
+    const { stdout, stderr } = await execAsync(`mydnsnotify ${origin}`, { timeout: 10000 });
+    console.log(`NOTIFY triggered for ${origin}: ${stdout.trim()}`);
+  } catch (error: any) {
+    // Log but don't fail the operation
+    console.warn(`Failed to trigger NOTIFY for ${origin}:`, error.message);
+  }
+}
 
 const upsertSchema = z.object({
   origin: z.string().min(1),
@@ -19,6 +35,7 @@ const upsertSchema = z.object({
   ttl: z.number().int().nonnegative().default(86400),
   active: z.enum(["Y", "N"]).default("Y"),
   xfer: z.string().optional(),
+  also_notify: z.string().optional(),
 });
 
 router.use(authenticate);
@@ -27,7 +44,7 @@ router.get("/", async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const offset = Number(req.query.offset) || 0;
   const search = typeof req.query.search === "string" ? `%${req.query.search}%` : null;
-  let sql = "SELECT id, origin, ns, mbox, serial, refresh, retry, expire, minimum, ttl, active FROM soa WHERE deleted_at IS NULL";
+  let sql = "SELECT id, origin, ns, mbox, serial, refresh, retry, expire, minimum, ttl, active, xfer, also_notify FROM soa WHERE deleted_at IS NULL";
   const params: unknown[] = [];
   if (search) {
     sql += " AND origin LIKE ?";
@@ -60,9 +77,9 @@ router.post("/", async (req: any, res) => {
       // Restore the soft-deleted record
       await execute(
         `UPDATE soa SET deleted_at = NULL, ns = ?, mbox = ?, serial = ?, refresh = ?, retry = ?,
-         expire = ?, minimum = ?, ttl = ?, active = ?, xfer = ? WHERE id = ?`,
+         expire = ?, minimum = ?, ttl = ?, active = ?, xfer = ?, also_notify = ? WHERE id = ?`,
         [data.ns, data.mbox, data.serial, data.refresh, data.retry, data.expire,
-         data.minimum, data.ttl, data.active, data.xfer || "", record.id]
+         data.minimum, data.ttl, data.active, data.xfer || "", data.also_notify || "", record.id]
       );
 
       await logAction(
@@ -74,6 +91,9 @@ router.post("/", async (req: any, res) => {
         "soa",
         record.id
       );
+
+      // Trigger NOTIFY to slaves
+      await triggerNotify(data.origin);
 
       return res.status(200).json({ id: record.id, restored: true });
     } else {
@@ -90,8 +110,8 @@ router.post("/", async (req: any, res) => {
     const result = await execute(
       `INSERT INTO soa
         (sys_userid, sys_groupid, user_id, sys_perm_user, sys_perm_group, sys_perm_other,
-         origin, ns, mbox, serial, refresh, retry, expire, minimum, ttl, active, xfer, lastmodified)
-       VALUES (0, 0, 0, 'riud', 'ri', 'r', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')
+         origin, ns, mbox, serial, refresh, retry, expire, minimum, ttl, active, xfer, also_notify, lastmodified)
+       VALUES (0, 0, 0, 'riud', 'ri', 'r', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')
       `,
       [
         data.origin,
@@ -105,6 +125,7 @@ router.post("/", async (req: any, res) => {
         data.ttl,
         data.active,
         data.xfer || "",
+        data.also_notify || "",
       ],
     );
 
@@ -117,6 +138,9 @@ router.post("/", async (req: any, res) => {
       "soa",
       result.insertId
     );
+
+    // Trigger NOTIFY to slaves
+    await triggerNotify(data.origin);
 
     res.status(201).json({ id: result.insertId });
   } catch (error: any) {
@@ -161,6 +185,9 @@ router.put("/:id", async (req: any, res) => {
     Number(req.params.id)
   );
 
+  // Trigger NOTIFY to slaves
+  await triggerNotify(origin);
+
   res.json({ success: true });
 });
 
@@ -194,6 +221,9 @@ router.delete("/:id", async (req: any, res) => {
     "soa",
     Number(req.params.id)
   );
+
+  // Trigger NOTIFY to slaves (best effort - zone is being deleted)
+  await triggerNotify(origin);
 
   res.status(204).send();
 });

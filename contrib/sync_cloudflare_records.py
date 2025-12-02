@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import random
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -595,6 +596,46 @@ def sync_pool_origins(cursor, lb_id: int, cf_pool_id: str, origins: List[Dict]) 
     return len(origins)
 
 
+def trigger_notify(zone_name: str, mydns_notify_bin: str = "/usr/local/bin/mydnsnotify") -> bool:
+    """
+    Trigger DNS NOTIFY for a zone using the mydnsnotify utility.
+
+    Args:
+        zone_name: Fully qualified zone name (e.g., "example.com.")
+        mydns_notify_bin: Path to mydnsnotify binary
+
+    Returns:
+        True if NOTIFY was successfully triggered, False otherwise
+    """
+    # Ensure zone name ends with a dot
+    if not zone_name.endswith('.'):
+        zone_name = zone_name + '.'
+
+    try:
+        result = subprocess.run(
+            [mydns_notify_bin, zone_name],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 0:
+            logging.info("Triggered NOTIFY for zone %s: %s", zone_name, result.stdout.strip())
+            return True
+        else:
+            logging.warning("Failed to trigger NOTIFY for zone %s: %s", zone_name, result.stderr.strip())
+            return False
+    except FileNotFoundError:
+        logging.warning("mydnsnotify binary not found at %s - skipping NOTIFY", mydns_notify_bin)
+        return False
+    except subprocess.TimeoutExpired:
+        logging.warning("Timeout while triggering NOTIFY for zone %s", zone_name)
+        return False
+    except Exception as exc:
+        logging.warning("Error triggering NOTIFY for zone %s: %s", zone_name, exc)
+        return False
+
+
 def sync_zone(conn, cf_client: CloudflareClient, account_id: int, zone: Dict) -> Tuple[int, int, int]:
     records = cf_client.list_records(zone["id"])
     balancers = cf_client.list_load_balancers(zone["id"])
@@ -618,6 +659,12 @@ def sync_zone(conn, cf_client: CloudflareClient, account_id: int, zone: Dict) ->
             (local_zone_id,),
         )
     conn.commit()
+
+    # Trigger DNS NOTIFY for the synced zone
+    zone_name = zone.get("name")
+    if zone_name:
+        trigger_notify(zone_name)
+
     return record_count, lb_count, pool_count
 
 

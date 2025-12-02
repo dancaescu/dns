@@ -19,6 +19,7 @@
 **************************************************************************************************/
 
 #include "named.h"
+#include "dnssec-query.h"
 
 /* Make this nonzero to enable debugging for this source file */
 #define	DEBUG_REPLY	1
@@ -1518,6 +1519,23 @@ build_reply(TASK *t, int want_additional) {
   if (want_additional) {
     reply_add_additional(t, &t->an);
     reply_add_additional(t, &t->ns);
+  }
+
+  /* Add DNSSEC records if enabled and zone supports it */
+  /* Note: This is a simplified integration - full version would iterate through RRsets */
+  if (dnssec_enabled && t->zone) {
+    /* For DNSKEY queries, add DNSKEYs and their RRSIGs */
+    if (t->qtype == DNS_QTYPE_DNSKEY) {
+      dnssec_add_to_response(t, ANSWER, t->zone, t->qname, t->qname, DNS_QTYPE_DNSKEY);
+    }
+    /* For NXDOMAIN, add NSEC3 proof */
+    else if (t->hdr.rcode == DNS_RCODE_NXDOMAIN) {
+      dnssec_add_nxdomain_proof(t, t->zone, t->qname, t->qname);
+    }
+    /* For other queries, add RRSIG for the queried RRset */
+    else if (t->an.size > 0) {
+      dnssec_add_to_response(t, ANSWER, t->zone, t->qname, t->qname, t->qtype);
+    }
   }
 
   /* Sort records where necessary */

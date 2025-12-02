@@ -505,6 +505,49 @@ resolve(TASK *t, datasection_t section, dns_qtype_t qtype, char *fqdn, int level
 	     soa, (soa) ? (int)soa->recursive : -1,
 	     forward_recursive, t->hdr.aa, section, level);
 #endif
+      /* Try DNS cache first if enabled */
+      if (DnsCache && DnsCache->config.enabled && t->hdr.rd) {
+        cache_record_t *records[100];
+        const char *client_ip = clientaddr(t);
+        int cache_result = dnscache_resolve(DnsCache, Memzone, fqdn, qtype,
+                                          client_ip, NULL, 0,
+                                          records, 100);
+
+        if (cache_result > 0) {
+          /* Cache hit - add records to response */
+#if DEBUG_ENABLED && DEBUG_RESOLVE
+          DebugX("resolve", 1, _("%s: DNS cache hit for %s: %d records"),
+                 desctask(t), fqdn, cache_result);
+#endif
+          for (int i = 0; i < cache_result; i++) {
+            MYDNS_RR *rr = (MYDNS_RR *)calloc(1, sizeof(MYDNS_RR));
+            if (rr) {
+              rr->id = 0;  /* No database ID for cached records */
+              rr->_name = strdup(records[i]->name);
+              rr->type = records[i]->type;
+              rr->_data.len = strlen(records[i]->data);
+              rr->_data.value = malloc(rr->_data.len + 1);
+              if (rr->_data.value) {
+                memcpy(rr->_data.value, records[i]->data, rr->_data.len + 1);
+              }
+              rr->aux = records[i]->aux;
+              rr->ttl = records[i]->ttl;
+              rrlist_add(t, section, DNS_RRTYPE_RR, (void *)rr, fqdn);
+            }
+          }
+          t->hdr.ra = 1;  /* Recursion available */
+          return TASK_EXECUTED;
+        } else if (cache_result == -2) {
+          /* Denied by ACL */
+#if DEBUG_ENABLED && DEBUG_RESOLVE
+          DebugX("resolve", 1, _("%s: DNS cache denied by ACL for %s from %s"),
+                 desctask(t), fqdn, client_ip);
+#endif
+          return dnserror(t, DNS_RCODE_REFUSED, ERR_ZONE_NOT_FOUND);
+        }
+        /* Cache miss - fall through to traditional recursion */
+      }
+
       if (forward_recursive && t->hdr.rd) {
 	return recursive_fwd(t);
       }

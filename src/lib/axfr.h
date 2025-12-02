@@ -10,6 +10,7 @@
 #define _MYDNS_AXFR_H
 
 #include "mydns.h"
+#include "memzone.h"
 
 /* AXFR transfer status */
 typedef enum {
@@ -86,6 +87,23 @@ void axfr_free(void);
 int axfr_load_zones(SQL *db, int zone_id, axfr_zone_t **zones, int *count);
 
 /**
+ * Load zone masters with priority: config file first, then database
+ * This is the recommended entry point for zone loading
+ *
+ * Priority:
+ * 1. If /etc/mydns/zone-masters.conf exists → load from config (MySQL-free)
+ * 2. If config doesn't exist → load from database (traditional)
+ * 3. If both fail → return error
+ *
+ * @param db Database connection (can be NULL if config file exists)
+ * @param zone_id Zone ID (0 for all zones, specific zone filtering only works with database)
+ * @param zones Output array of zone configurations
+ * @param count Output number of zones
+ * @return 0 on success, -1 on error
+ */
+int axfr_load_zones_auto(SQL *db, int zone_id, axfr_zone_t **zones, int *count);
+
+/**
  * Free zone configuration
  */
 void axfr_free_zone(axfr_zone_t *zone);
@@ -118,6 +136,17 @@ int axfr_transfer_zone(SQL *db, axfr_zone_t *zone, axfr_result_t *result);
  * @return 0 on success, -1 on error
  */
 int axfr_update_database(SQL *db, axfr_zone_t *zone, axfr_record_t *records, axfr_result_t *result);
+
+/**
+ * Update memzone with transferred zone data
+ *
+ * @param ctx Memzone context
+ * @param zone Zone configuration
+ * @param records Linked list of records
+ * @param result Output result
+ * @return 0 on success, -1 on error
+ */
+int axfr_update_memzone(memzone_ctx_t *ctx, axfr_zone_t *zone, axfr_record_t *records, axfr_result_t *result);
 
 /**
  * Free record list
@@ -184,5 +213,106 @@ int axfr_receive_response(int sockfd, unsigned char *response, size_t buffer_siz
  * @param result Transfer result
  */
 void axfr_log_transfer(SQL *db, axfr_zone_t *zone, axfr_result_t *result);
+
+/* NOTIFY protocol support (RFC 1996) */
+
+/**
+ * Create UDP socket for receiving NOTIFY messages
+ *
+ * @param port Port to bind to (typically 53)
+ * @return Socket descriptor on success, -1 on error
+ */
+int axfr_notify_listen(int port);
+
+/**
+ * Parse NOTIFY message and extract zone name
+ *
+ * @param message NOTIFY message buffer
+ * @param length Message length
+ * @param zone_name Output buffer for zone name
+ * @param zone_name_size Size of zone_name buffer
+ * @param query_id Output query ID for response
+ * @return 0 on success, -1 on error
+ */
+int axfr_notify_parse(const unsigned char *message, size_t length,
+                      char *zone_name, size_t zone_name_size, uint16_t *query_id);
+
+/**
+ * Send NOTIFY response
+ *
+ * @param sockfd Socket descriptor
+ * @param query_id Query ID from NOTIFY request
+ * @param zone_name Zone name
+ * @param addr Source address to reply to
+ * @param addrlen Address length
+ * @return 0 on success, -1 on error
+ */
+int axfr_notify_respond(int sockfd, uint16_t query_id, const char *zone_name,
+                        struct sockaddr *addr, socklen_t addrlen);
+
+/**
+ * Process received NOTIFY message
+ * Validates source, checks zone configuration, triggers transfer if needed
+ *
+ * @param db Database connection
+ * @param zone_name Zone name from NOTIFY
+ * @param source_ip Source IP address
+ * @return 0 on success, -1 on error
+ */
+int axfr_notify_process(SQL *db, const char *zone_name, const char *source_ip);
+
+/* IXFR protocol support (RFC 1995) */
+
+/**
+ * Create IXFR query packet
+ *
+ * @param zone_name Zone name
+ * @param query_id Query ID
+ * @param current_serial Current SOA serial on slave
+ * @param buffer Output buffer
+ * @param buffer_size Buffer size
+ * @return Query packet size, -1 on error
+ */
+int axfr_create_ixfr_query(const char *zone_name, uint16_t query_id,
+                           uint32_t current_serial, unsigned char *buffer, size_t buffer_size);
+
+/**
+ * Perform IXFR transfer from master server
+ * Falls back to AXFR if master doesn't support IXFR or doesn't have history
+ *
+ * @param db Database connection
+ * @param zone Zone configuration
+ * @param result Output transfer result
+ * @return 0 on success, -1 on error
+ */
+int axfr_ixfr_transfer_zone(SQL *db, axfr_zone_t *zone, axfr_result_t *result);
+
+/**
+ * Parse IXFR response
+ * Handles both IXFR format and AXFR fallback
+ *
+ * @param response DNS response buffer
+ * @param length Response length
+ * @param current_serial Current serial on slave
+ * @param records Output linked list of records
+ * @param is_axfr_fallback Output flag indicating AXFR fallback
+ * @return Number of records parsed, -1 on error
+ */
+int axfr_parse_ixfr_response(const unsigned char *response, size_t length,
+                             uint32_t current_serial, axfr_record_t **records,
+                             int *is_axfr_fallback);
+
+/**
+ * Apply IXFR changes to database
+ * Processes delete and add sequences from IXFR response
+ *
+ * @param db Database connection
+ * @param zone Zone configuration
+ * @param records Linked list of records with change markers
+ * @param result Output result
+ * @return 0 on success, -1 on error
+ */
+int axfr_apply_ixfr_changes(SQL *db, axfr_zone_t *zone,
+                            axfr_record_t *records, axfr_result_t *result);
 
 #endif /* _MYDNS_AXFR_H */

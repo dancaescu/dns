@@ -19,6 +19,7 @@
 **************************************************************************************************/
 
 #include "named.h"
+#include "../lib/tsig.h"
 
 /* Make this nonzero to enable debugging for this source file */
 #define	DEBUG_NOTIFY	1
@@ -129,6 +130,26 @@ notify_write(TASK *t) {
   if (!(out = dns_make_notify(t, t->id, DNS_QTYPE_SOA, notify->origin, 0, &reqlen)))
     return TASK_FAILED;
 
+  /* Check if we should sign NOTIFY messages with TSIG */
+  tsig_key_t *tsig_key = NULL;
+  char tsig_query[256];
+  SQL_RES *tsig_res = NULL;
+  SQL_ROW tsig_row = NULL;
+
+  /* Try to load TSIG key for this zone */
+  snprintf(tsig_query, sizeof(tsig_query),
+           "SELECT name, algorithm, secret FROM tsig_keys WHERE enabled=1 AND allow_notify=1 LIMIT 1");
+
+  if ((tsig_res = sql_query(sql, tsig_query, NULL))) {
+    if ((tsig_row = sql_getrow(tsig_res, NULL))) {
+      tsig_key = tsig_key_create(tsig_row[0], tsig_row[1], tsig_row[2]);
+      if (tsig_key) {
+        Notice(_("DNS NOTIFY will use TSIG key '%s' for zone %s"), tsig_row[0], notify->origin);
+      }
+    }
+    sql_free(tsig_res);
+  }
+
   for (i = 0; i < array_numobjects(notify->slaves); i++) {
     NOTIFYSLAVE *slave = (NOTIFYSLAVE*)array_fetch(notify->slaves, i);
   
@@ -194,11 +215,40 @@ notify_write(TASK *t) {
       continue; /* slave has not timed out yet - try again later */
     }
 
-    if ((rv = sendto(t->fd, out, reqlen, 0, slaveaddr, slavelen)) < 0) {
+    /* Sign with TSIG if key is available */
+    char *packet_to_send = out;
+    size_t packet_len = reqlen;
+    char *signed_packet = NULL;
+
+    if (tsig_key) {
+      size_t max_tsig_len = 200;
+      signed_packet = ALLOCATE(reqlen + max_tsig_len, char[]);
+      if (signed_packet) {
+        memcpy(signed_packet, out, reqlen);
+        size_t new_len = 0;
+
+        if (tsig_sign((unsigned char*)signed_packet, reqlen, reqlen + max_tsig_len,
+                      tsig_key, NULL, 0, &new_len) == 0) {
+          packet_to_send = signed_packet;
+          packet_len = new_len;
+#if DEBUG_ENABLED && DEBUG_NOTIFY
+          DebugX("notify", 1, _("%s: DNS NOTIFY signed with TSIG for slave %s:%d"),
+                 desctask(t), msg, port);
+#endif
+        } else {
+          Warnx(_("TSIG signing failed for NOTIFY to %s:%d"), msg, port);
+          RELEASE(signed_packet);
+          signed_packet = NULL;
+        }
+      }
+    }
+
+    if ((rv = sendto(t->fd, packet_to_send, packet_len, 0, slaveaddr, slavelen)) < 0) {
 #if DEBUG_ENABLED && DEBUG_NOTIFY
       DebugX("notify", 1, _("%s: DNS NOTIFY notify_write send to slave %s(%d) failed - %s(%d)"), desctask(t),
 	     msg, port, strerror(errno), errno);
 #endif
+      if (signed_packet) RELEASE(signed_packet);
       if (
 	  (errno == EINTR)
 #ifdef EAGAIN
@@ -209,9 +259,11 @@ notify_write(TASK *t) {
 #endif
 #endif
 	  ) {
+	if (signed_packet) RELEASE(signed_packet);
 	RELEASE(msg);
 	continue; /* Try again later */
       }
+      if (signed_packet) RELEASE(signed_packet);
       Warn(_("Notify Send to Slave %s(%d) failed with error %s(%d)"), msg, port, strerror(errno), errno);
       RELEASE(msg);
       continue;
@@ -222,6 +274,9 @@ notify_write(TASK *t) {
 	     desctask(t), msg, port);
     }
 #endif
+
+    /* Cleanup signed packet */
+    if (signed_packet) RELEASE(signed_packet);
 	   
     slave->lastsent = current_time;
     slave->replied = 0;
@@ -233,6 +288,11 @@ notify_write(TASK *t) {
   }
 
   RELEASE(out);
+
+  /* Cleanup TSIG key */
+  if (tsig_key) {
+    tsig_key_free(tsig_key);
+  }
 
   if(slavecount) {
     t->timeout = timeout;

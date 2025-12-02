@@ -27,6 +27,8 @@ interface SoaRecord {
   minimum: number;
   ttl: number;
   active: "Y" | "N";
+  xfer?: string;
+  also_notify?: string;
 }
 
 interface RrRecord {
@@ -1143,6 +1145,30 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                         />
                       </div>
                     </div>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <Label htmlFor="soa-xfer" className="text-sm font-medium">AXFR Allowed IPs</Label>
+                        <Input
+                          id="soa-xfer"
+                          name="xfer"
+                          placeholder="192.168.1.10,192.168.1.11"
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Comma-separated list of IPs allowed to request zone transfers
+                        </p>
+                      </div>
+                      <div>
+                        <Label htmlFor="soa-also-notify" className="text-sm font-medium">Also Notify Servers</Label>
+                        <Input
+                          id="soa-also-notify"
+                          name="also_notify"
+                          placeholder="192.168.1.10,192.168.1.11"
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Comma-separated list of additional slave servers to notify
+                        </p>
+                      </div>
+                    </div>
                     <div className="flex items-center gap-4">
                       <div>
                         <Label htmlFor="soa-active" className="text-sm font-medium">Active</Label>
@@ -1369,6 +1395,37 @@ export function Dashboard({ onLogout, user }: { onLogout: () => void; user: any 
                                           value={editSoaData.ttl ?? 0}
                                           onChange={(e) => setEditSoaData({ ...editSoaData, ttl: Number(e.target.value) })}
                                         />
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                      <div>
+                                        <Label htmlFor="edit-soa-xfer" className="text-sm font-medium">
+                                          AXFR Allowed IPs
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-xfer"
+                                          value={editSoaData.xfer || ""}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, xfer: e.target.value })}
+                                          placeholder="192.168.1.10,192.168.1.11"
+                                        />
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                          Comma-separated list of IPs allowed to request zone transfers
+                                        </p>
+                                      </div>
+                                      <div>
+                                        <Label htmlFor="edit-soa-also-notify" className="text-sm font-medium">
+                                          Also Notify Servers
+                                        </Label>
+                                        <Input
+                                          id="edit-soa-also-notify"
+                                          value={editSoaData.also_notify || ""}
+                                          onChange={(e) => setEditSoaData({ ...editSoaData, also_notify: e.target.value })}
+                                          placeholder="192.168.1.10,192.168.1.11"
+                                        />
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                          Comma-separated list of additional slave servers to notify
+                                        </p>
                                       </div>
                                     </div>
 

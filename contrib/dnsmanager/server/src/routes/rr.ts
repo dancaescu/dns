@@ -3,8 +3,37 @@ import { z } from "zod";
 import { authenticate } from "../middleware.js";
 import { query, execute } from "../db.js";
 import { logAction } from "../auth.js";
+import { exec } from "child_process";
+import { promisify } from "util";
 
+const execAsync = promisify(exec);
 const router = Router();
+
+/**
+ * Trigger DNS NOTIFY for a zone using mydnsnotify utility
+ */
+async function triggerNotify(origin: string): Promise<void> {
+  try {
+    const { stdout, stderr } = await execAsync(`mydnsnotify ${origin}`, { timeout: 10000 });
+    console.log(`NOTIFY triggered for ${origin}: ${stdout.trim()}`);
+  } catch (error: any) {
+    // Log but don't fail the operation
+    console.warn(`Failed to trigger NOTIFY for ${origin}:`, error.message);
+  }
+}
+
+/**
+ * Get zone origin for a given zone ID
+ */
+async function getZoneOrigin(zoneId: number): Promise<string | null> {
+  try {
+    const [rows] = await query<{ origin: string }>("SELECT origin FROM soa WHERE id = ?", [zoneId]);
+    return rows.length > 0 ? rows[0].origin : null;
+  } catch (error) {
+    console.error("Failed to get zone origin:", error);
+    return null;
+  }
+}
 
 const upsertSchema = z.object({
   zone: z.number().int().positive(),
@@ -51,6 +80,11 @@ router.post("/", async (req, res) => {
         `UPDATE rr SET deleted_at = NULL, aux = ?, ttl = ? WHERE id = ?`,
         [data.aux, data.ttl, record.id]
       );
+
+      // Trigger NOTIFY to slaves
+      const origin = await getZoneOrigin(data.zone);
+      if (origin) await triggerNotify(origin);
+
       return res.status(200).json({ id: record.id, restored: true });
     } else {
       // Record already exists and is active
@@ -70,6 +104,11 @@ router.post("/", async (req, res) => {
        VALUES (0, 0, 'riud', 'ri', 'r', ?, ?, ?, ?, ?, ?, 0, 1)`,
       [data.zone, data.name, data.type, data.data, data.aux, data.ttl],
     );
+
+    // Trigger NOTIFY to slaves
+    const origin = await getZoneOrigin(data.zone);
+    if (origin) await triggerNotify(origin);
+
     res.status(201).json({ id: result.insertId });
   } catch (error: any) {
     console.error("Failed to create RR record:", error);
@@ -90,10 +129,22 @@ router.put("/:id", async (req, res) => {
   if (!fields.length) {
     return res.status(400).json({ message: "No changes supplied" });
   }
+
+  // Get zone ID for NOTIFY
+  const [rrRows] = await query<{ zone: number }>("SELECT zone FROM rr WHERE id = ?", [req.params.id]);
+  const zoneId = rrRows.length > 0 ? rrRows[0].zone : null;
+
   const setClause = fields.map((key) => `${key} = ?`).join(", ");
   const values = fields.map((key) => (updates as any)[key]);
   values.push(req.params.id);
   await execute(`UPDATE rr SET ${setClause} WHERE id = ?`, values);
+
+  // Trigger NOTIFY to slaves
+  if (zoneId) {
+    const origin = await getZoneOrigin(zoneId);
+    if (origin) await triggerNotify(origin);
+  }
+
   res.json({ success: true });
 });
 
@@ -147,6 +198,9 @@ router.delete("/:id", async (req: any, res) => {
         zone_name: record.zone_name
       }
     );
+
+    // Trigger NOTIFY to slaves
+    await triggerNotify(record.zone_name);
 
     res.status(204).send();
   } catch (error) {
@@ -210,6 +264,9 @@ router.post("/:id/restore", async (req: any, res) => {
         zone_name: record.zone_name
       }
     );
+
+    // Trigger NOTIFY to slaves
+    await triggerNotify(record.zone_name);
 
     res.json({ success: true, message: "Record restored successfully" });
   } catch (error) {

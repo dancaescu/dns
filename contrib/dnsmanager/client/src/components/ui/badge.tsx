@@ -8,6 +8,7 @@ const badgeVariants = {
   warning: "bg-yellow-100 text-yellow-700 border-yellow-200",
   error: "bg-red-100 text-red-700 border-red-200",
   destructive: "bg-red-100 text-red-700 border-red-200",
+  outline: "bg-white text-gray-700 border-gray-300",
 };
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {

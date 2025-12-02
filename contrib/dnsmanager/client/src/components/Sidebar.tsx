@@ -7,7 +7,9 @@ import {
   Key,
   Users,
   Settings as SettingsIcon,
-  MapPin
+  MapPin,
+  Shield,
+  ShieldCheck
 } from "lucide-react";
 
 interface User {
@@ -55,6 +57,18 @@ export function Sidebar({ user }: SidebarProps) {
       path: "/geosensors",
       icon: MapPin,
       show: true,
+    },
+    {
+      label: "DNSSEC",
+      path: "/dnssec",
+      icon: Shield,
+      show: true,
+    },
+    {
+      label: "Access Control & Cache",
+      path: "/acl",
+      icon: ShieldCheck,
+      show: isSuperadmin,
     },
     {
       label: "User Management",

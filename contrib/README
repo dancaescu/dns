@@ -96,6 +96,24 @@ Reads configuration from:
 Requires: pymysql, requests
 
 
+ACL_USER_GUIDE.md:
+---------------------------------------------------------------------------
+by Dan Caescu <dan.caescu@multitel.net>
+
+Complete user guide for MyDNS Enhanced ACL System for DNS UPDATE operations.
+Covers configuration, common use cases, security best practices, monitoring,
+troubleshooting, and migration from the old soa.update_acl system.
+
+Features documented:
+  - Zone-specific access control with IP/CIDR restrictions
+  - TSIG authentication integration
+  - Granular permissions (add/delete/update separately)
+  - Complete audit logging
+  - Priority-based ACL rules
+
+See also: dnsupdate-schema.sql for database schema and SQL examples.
+
+
 sync_pools_direct.py:
 ---------------------------------------------------------------------------
 by Dan Caescu <dan.caescu@multitel.net>

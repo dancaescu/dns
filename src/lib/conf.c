@@ -136,6 +136,7 @@ static MYDNS_CONFIG defConfig[] = {
   {	"db-user",		V_("username"),				N_("SQL server username"),							NULL,		0,		NULL	},
   {	"db-password",		V_("password"),				N_("SQL server password"),							NULL,		0,		NULL	},
   {	"database",		V_(PACKAGE_NAME),			N_("MyDNS database name"),							NULL,		0,		NULL	},
+  {	"no-database",		V_("no"),				N_("Disable MySQL database (use memzone only for slave servers)"),		NULL,		0,		NULL	},
 
   {	"-",			NULL,					N_("GENERAL OPTIONS"),								NULL,		0,		NULL	},
 
