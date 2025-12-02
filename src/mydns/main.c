@@ -1634,7 +1634,7 @@ main(int argc, char **argv)
     Notice(_("GeoIP initialized successfully"));
     Warnx(_("DEBUG: main() after Notice()"));
   }
-  Warnx(_("DEBUG: main() after GeoIP if/else block"))
+  Warnx(_("DEBUG: main() after GeoIP if/else block"));
 
   /* Initialize in-memory zone storage (attach to existing shared memory created by mydns-xfer) */
   Warnx(_("DEBUG: main() about to call memzone_init()"));
