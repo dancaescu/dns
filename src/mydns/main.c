@@ -1575,7 +1575,10 @@ main(int argc, char **argv)
   bindtextdomain(PACKAGE, LOCALEDIR);
   textdomain(PACKAGE);
 
+  Warnx(_("DEBUG: main() about to call cmdline()"));
   cmdline(argc, argv);					/* Process command line */
+  Warnx(_("DEBUG: main() after cmdline()"));
+
 
   /* Set hostname */
   gethostname(hostname, sizeof(hostname)-1);
@@ -1601,12 +1604,16 @@ main(int argc, char **argv)
   __set_sighandler(SIGABRT, named_cleanup, &mask);
   __set_sighandler(SIGTERM, named_cleanup, &mask);
 
+  Warnx(_("DEBUG: main() about to call init_rlimits()"));
   init_rlimits();
 
+  Warnx(_("DEBUG: main() after init_rlimits()"));
   if (opt_daemon)					/* Move into background if requested */
     become_daemon();
 
+  Warnx(_("DEBUG: main() about to call conf_set_logging()"));
   conf_set_logging();
+  Warnx(_("DEBUG: main() about to call db_connect()"));
   db_connect();
   create_pidfile();					/* Create PID file */
 
