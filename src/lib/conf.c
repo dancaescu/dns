@@ -35,6 +35,15 @@ time_t		task_timeout;				/* Task timeout */
 int		axfr_enabled = 0;			/* Enable AXFR? */
 int		tcp_enabled = 0;			/* Enable TCP? */
 int		dns_update_enabled = 0;			/* Enable DNS UPDATE? */
+int		use_new_update_acl = 1;			/* Use new update_acl table instead of soa.update_acl */
+int		tsig_required_for_update = 0;		/* Require TSIG for DNS UPDATE? */
+int		tsig_enforce_axfr = 0;			/* Require TSIG for AXFR? */
+int		tsig_enforce_ixfr = 0;			/* Require TSIG for IXFR? */
+int		tsig_enforce_update = 0;		/* Require TSIG for DNS UPDATE? */
+int		tsig_enforce_notify = 0;		/* Require TSIG for NOTIFY? */
+int		audit_update_log = 1;			/* Log updates to update_log table */
+int		audit_tsig_log = 1;			/* Log TSIG usage to tsig_usage_log table */
+
 int		dns_notify_enabled = 0;			/* Enable notify */
 int		notify_timeout = 60;
 int		notify_retries = 5;
@@ -44,6 +53,10 @@ int		dns_ixfr_enabled = 0;			/* Enable IXFR functionality */
 int		ixfr_gc_enabled = 0;			/* Enable IXFR GC */
 uint32_t	ixfr_gc_interval = 86400;		/* How long between each IXFR GC */
 uint32_t	ixfr_gc_delay=600;			/* After startup delay first GC by this much */
+
+int		dnssec_enabled = 0;			/* Enable DNSSEC signing */
+int		dnssec_auto_sign = 0;			/* Automatically sign zones */
+const char	*dnssec_keys_dir = "/etc/mydns/keys";	/* Directory for DNSSEC keys */
 int		ignore_minimum = 0;			/* Ignore minimum TTL? */
 
 int		forward_recursive = 0;			/* Forward recursive queries? */
@@ -112,7 +125,7 @@ char		*dn_default_ns = NULL;			/* Default NS for directNIC */
 **
 **  If the 'name' is "-", the --dump-config option treats 'desc' as a header field.
 */
-static CONF defConfig[] = {
+static MYDNS_CONFIG defConfig[] = {
 /* name				value					desc										altname		defaulted	next	*/
   {	"-",			NULL,					N_("DATABASE INFORMATION"),							NULL,		0,		NULL	},
   {	"db-host",		V_("localhost"),			N_("SQL server hostname"),							NULL,		0,		NULL	},
@@ -174,6 +187,9 @@ static CONF defConfig[] = {
   {	"ixfr-gc-enabled",	V_("no"),				N_("Enable IXFR GC functionality"),						NULL,		0,		NULL	},
   {	"ixfr-gc-interval",	V_("86400"),				N_("How often to run GC for IXFR"),						NULL,		0,		NULL	},
   {	"ixfr-gc-delay",	V_("600"),				N_("Delay until first IXFR GC runs"),						NULL,		0,		NULL	},
+  {	"dnssec-enabled",	V_("no"),				N_("Enable DNSSEC signing"),							NULL,		0,		NULL	},
+  {	"dnssec-auto-sign",	V_("no"),				N_("Automatically sign zones when records change"),				NULL,		0,		NULL	},
+  {	"dnssec-keys-dir",	V_("/etc/mydns/keys"),			N_("Directory for DNSSEC private keys"),					NULL,		0,		NULL	},
   {	"extended-data-support",V_("no"),				N_("Support extended data fields for large TXT records"),			NULL,		0,		NULL	},
   {	"dbengine",		V_("MyISAM"),				N_("Support different database engines"),					NULL,		0,		NULL	},
   {	"wildcard-recursion",	V_("0"),				N_("Wildcard ancestor search levels"),						NULL,		0,		NULL	},
@@ -194,7 +210,7 @@ static CONF defConfig[] = {
   {	"debug-array",		V_("0"),				N_("Enable ARRAY code debugging"),						NULL,		0,		NULL	},
   {	"debug-axfr",		V_("0"),				N_("Enable AXFR code debugging"),						NULL,		0,		NULL	},
   {	"debug-cache",		V_("0"),				N_("Enable CACHE code debugging"),						NULL,		0,		NULL	},
-  {	"debug-conf",		V_("0"),				N_("Enable CONF code debugging"),						NULL,		0,		NULL	},
+  {	"debug-conf",		V_("0"),				N_("Enable MYDNS_CONFIG code debugging"),						NULL,		0,		NULL	},
   {	"debug-data",		V_("0"),				N_("Enable DATA code debugging"),						NULL,		0,		NULL	},
   {	"debug-db",		V_("0"),				N_("Enable DB code debugging"),							NULL,		0,		NULL	},
   {	"debug-encode",		V_("0"),				N_("Enable ENCODE code debugging"),						NULL,		0,		NULL	},
@@ -237,7 +253,7 @@ dump_config(void) {
   time_t	time_now = time(NULL);
   int		len = 0, w = 0, n, defaulted;
   char		pair[512], buf[80];
-  CONF		*c;
+  MYDNS_CONFIG		*c;
 
   /*
   **	Pretty header
@@ -545,6 +561,35 @@ load_config(void) {
   dns_update_enabled = GETBOOL(conf_get(&Conf, "allow-update", NULL));
   Verbose(_("DNS UPDATE is %senabled"), (dns_update_enabled)?"":_("not "));
 
+  use_new_update_acl = GETBOOL(conf_get(&Conf, "use-new-update-acl", NULL));
+  if (use_new_update_acl)
+    Verbose(_("Using new update_acl table for DNS UPDATE authorization"));
+
+  tsig_required_for_update = GETBOOL(conf_get(&Conf, "tsig-required-for-update", NULL));
+  if (tsig_required_for_update)
+    Verbose(_("TSIG required for DNS UPDATE"));
+
+  tsig_enforce_axfr = GETBOOL(conf_get(&Conf, "tsig-enforce-axfr", NULL));
+  if (tsig_enforce_axfr)
+    Verbose(_("TSIG enforcement enabled for AXFR"));
+
+  tsig_enforce_ixfr = GETBOOL(conf_get(&Conf, "tsig-enforce-ixfr", NULL));
+  if (tsig_enforce_ixfr)
+    Verbose(_("TSIG enforcement enabled for IXFR"));
+
+  tsig_enforce_update = GETBOOL(conf_get(&Conf, "tsig-enforce-update", NULL));
+  if (tsig_enforce_update)
+    Verbose(_("TSIG enforcement enabled for DNS UPDATE"));
+
+  tsig_enforce_notify = GETBOOL(conf_get(&Conf, "tsig-enforce-notify", NULL));
+  if (tsig_enforce_notify)
+    Verbose(_("TSIG enforcement enabled for NOTIFY"));
+
+  audit_update_log = GETBOOL(conf_get(&Conf, "audit-update-log", NULL));
+  audit_tsig_log = GETBOOL(conf_get(&Conf, "audit-tsig-log", NULL));
+  if (audit_update_log || audit_tsig_log)
+    Verbose(_("Audit logging enabled"));
+
   mydns_soa_use_active = GETBOOL(conf_get(&Conf, "use-soa-active", NULL));
   mydns_rr_use_active = GETBOOL(conf_get(&Conf, "use-rr-active", NULL));
 
@@ -559,6 +604,11 @@ load_config(void) {
   ixfr_gc_enabled = GETBOOL(conf_get(&Conf, "ixfr-gc-enabled", NULL));
   ixfr_gc_interval = atou(conf_get(&Conf, "ixfr-gc-interval", NULL));
   ixfr_gc_delay = atou(conf_get(&Conf, "ixfr-gc-delay", NULL));
+
+  dnssec_enabled = GETBOOL(conf_get(&Conf, "dnssec-enabled", NULL));
+  Verbose(_("DNSSEC signing is %senabled"), (dnssec_enabled)?"":_("not "));
+  dnssec_auto_sign = GETBOOL(conf_get(&Conf, "dnssec-auto-sign", NULL));
+  dnssec_keys_dir = conf_get(&Conf, "dnssec-keys-dir", NULL);
 
   mydns_rr_extended_data = GETBOOL(conf_get(&Conf, "extended-data-support", NULL));
 
