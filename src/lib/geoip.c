@@ -19,9 +19,9 @@
 GEOIP_CTX* geoip_init(SQL *db) {
     GEOIP_CTX *ctx;
 
+    /* MySQL-free mode: Allow NULL database for basic GeoIP functionality */
     if (!db) {
-        Err(_("geoip_init: NULL database connection"));
-        return NULL;
+        Warnx(_("geoip_init: NULL database connection - GeoIP features requiring DB disabled"));
     }
 
     ctx = (GEOIP_CTX*)malloc(sizeof(GEOIP_CTX));
