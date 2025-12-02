@@ -41,6 +41,14 @@ extern time_t		task_timeout;			/* Task timeout */
 extern int		axfr_enabled;			/* Allow AXFR? */
 extern int		tcp_enabled;			/* Enable TCP? */
 extern int		dns_update_enabled;		/* Enable DNS UPDATE? */
+extern int		use_new_update_acl;		/* Use new update_acl table */
+extern int		tsig_required_for_update;	/* Require TSIG for UPDATE */
+extern int		tsig_enforce_axfr;		/* Require TSIG for AXFR */
+extern int		tsig_enforce_ixfr;		/* Require TSIG for IXFR */
+extern int		tsig_enforce_update;		/* Require TSIG for DNS UPDATE */
+extern int		tsig_enforce_notify;		/* Require TSIG for NOTIFY */
+extern int		audit_update_log;		/* Log updates to update_log */
+extern int		audit_tsig_log;			/* Log TSIG to tsig_usage_log */
 extern int		dns_notify_enabled;		/* Enable DNS NOTIFY? */
 extern int		notify_timeout;
 extern int		notify_retries;
@@ -52,6 +60,10 @@ extern uint32_t		ixfr_gc_interval;		/* Run the IXFR GC this often */
 extern uint32_t		ixfr_gc_delay;			/* Delay before running first IXFR GC */
 extern int		ignore_minimum;			/* Ignore minimum TTL? */
 extern char		hostname[256];			/* This machine's hostname */
+
+extern int		dnssec_enabled;			/* Enable DNSSEC signing */
+extern int		dnssec_auto_sign;		/* Automatically sign zones */
+extern const char	*dnssec_keys_dir;		/* Directory for DNSSEC keys */
 
 extern int		wildcard_recursion;		/* Number of levels of ancestor to search for wildcards */
 
