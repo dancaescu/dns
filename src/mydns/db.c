@@ -41,6 +41,8 @@ db_connect(void) {
   size_t i;
 
   /* MySQL-free slave mode: Skip database connection if explicitly disabled */
+  Notice(_("db_connect() called, no-database='%s'"), no_database ? no_database : "(null)");
+
   if (no_database && (strcasecmp(no_database, "yes") == 0 || strcasecmp(no_database, "true") == 0 || strcmp(no_database, "1") == 0)) {
     Notice(_("MySQL-free mode enabled - using memzone for zone storage"));
     return;
