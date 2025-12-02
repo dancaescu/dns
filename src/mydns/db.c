@@ -29,24 +29,33 @@
 **************************************************************************************************/
 void
 db_connect(void) {
+  const char *no_database;
   const char *host_values[SQL_MAX_DB_HOSTS];
   const char *hosts[SQL_MAX_DB_HOSTS];
   size_t host_count = 0;
   const char *primary_host = NULL;
-  const char *password = conf_get(&Conf, "db-password", NULL);
-  const char *user = conf_get(&Conf, "db-user", NULL);
-  const char *database = conf_get(&Conf, "database", NULL);
-  const char *policy = conf_get(&Conf, "db-host-policy", NULL);
-  const char *no_database = conf_get(&Conf, "no-database", NULL);
+  const char *password;
+  const char *user;
+  const char *database;
+  const char *policy;
   size_t i;
 
+  /* FIRST THING: Print debug message */
+  Warnx(_("DEBUG: db_connect() ENTRY"));
+
   /* MySQL-free slave mode: Skip database connection if explicitly disabled */
-  Warnx(_("DEBUG: db_connect() called, no-database='%s'"), no_database ? no_database : "(null)");
+  no_database = conf_get(&Conf, "no-database", NULL);
+  Warnx(_("DEBUG: db_connect() after conf_get, no-database='%s'"), no_database ? no_database : "(null)");
 
   if (no_database && (strcasecmp(no_database, "yes") == 0 || strcasecmp(no_database, "true") == 0 || strcmp(no_database, "1") == 0)) {
     Warnx(_("MySQL-free mode enabled - using memzone for zone storage"));
     return;
   }
+
+  password = conf_get(&Conf, "db-password", NULL);
+  user = conf_get(&Conf, "db-user", NULL);
+  database = conf_get(&Conf, "database", NULL);
+  policy = conf_get(&Conf, "db-host-policy", NULL);
 
   host_values[0] = conf_get(&Conf, "db-host", NULL);
 
