@@ -1618,6 +1618,7 @@ main(int argc, char **argv)
   create_pidfile();					/* Create PID file */
 
   /* Initialize GeoIP */
+  Warnx(_("DEBUG: main() about to call geoip_init()"));
   GeoIP = geoip_init(sql);
   if (!GeoIP) {
     Warnx(_("GeoIP initialization failed - geographic features disabled"));
@@ -1626,17 +1627,24 @@ main(int argc, char **argv)
   }
 
   /* Initialize in-memory zone storage (attach to existing shared memory created by mydns-xfer) */
+  Warnx(_("DEBUG: main() about to call memzone_init()"));
   Memzone = memzone_init(0);  /* 0 = attach to existing, 1 = create new */
+  Warnx(_("DEBUG: main() after memzone_init(), Memzone=%p"), Memzone);
   if (!Memzone) {
     Warnx(_("Memzone initialization failed - AXFR slave zones will not work"));
   } else {
     /* Load ACL rules from database into memory */
+    Warnx(_("DEBUG: main() about to call memzone_load_acl_from_db()"));
     int acl_count = memzone_load_acl_from_db(Memzone, sql);
+    Warnx(_("DEBUG: main() after memzone_load_acl_from_db(), acl_count=%d"), acl_count);
     Notice(_("Memzone initialized successfully: %u zones, %u records, %d ACL rules"),
            Memzone->zone_count, Memzone->record_count, acl_count);
   }
+  Warnx(_("DEBUG: main() after memzone section"));
+
 
   /* Initialize DNS caching/recursive resolver */
+  Warnx(_("DEBUG: main() about to init DNS cache"));
   /* Read cache configuration from mydns.conf */
   int cache_enabled = -1;
   int cache_size_mb = 0;
@@ -1659,8 +1667,10 @@ main(int argc, char **argv)
   }
   cache_upstream = conf_get(&Conf, "dns-cache-upstream", NULL);
 
+  Warnx(_("DEBUG: main() about to call dnscache_init()"));
   DnsCache = dnscache_init(sql, cache_enabled, cache_size_mb,
                             cache_ttl_min, cache_ttl_max, cache_upstream);
+  Warnx(_("DEBUG: main() after dnscache_init(), DnsCache=%p"), DnsCache);
   if (!DnsCache) {
     Warnx(_("DNS cache initialization failed - caching disabled"));
   } else {
@@ -1671,6 +1681,8 @@ main(int argc, char **argv)
   }
 
   /* Initialize DNS over HTTPS (DoH) server */
+  Warnx(_("DEBUG: main() about to init DoH"));
+
   /* Read DoH configuration from mydns.conf */
   int doh_enabled = -1;
   int doh_port = 0;
