@@ -444,10 +444,22 @@ db_check_ptr_table(const char *database) {
 **************************************************************************************************/
 void
 db_verify_tables(void) {
-  const char *host = conf_get(&Conf, "db-host", NULL);
-  const char *database = conf_get(&Conf, "database", NULL);
-  const char *password = conf_get(&Conf, "db-password", NULL);
-  const char *user = conf_get(&Conf, "db-user", NULL);
+  const char *no_database = conf_get(&Conf, "no-database", NULL);
+  const char *host;
+  const char *database;
+  const char *password;
+  const char *user;
+
+  /* MySQL-free slave mode: Skip database verification if explicitly disabled */
+  if (no_database && (strcasecmp(no_database, "yes") == 0 || strcasecmp(no_database, "true") == 0 || strcmp(no_database, "1") == 0)) {
+    Warnx(_("MySQL-free mode: Skipping database table verification"));
+    return;
+  }
+
+  host = conf_get(&Conf, "db-host", NULL);
+  database = conf_get(&Conf, "database", NULL);
+  password = conf_get(&Conf, "db-password", NULL);
+  user = conf_get(&Conf, "db-user", NULL);
 
   sql_open(user, password, host, database);
 
