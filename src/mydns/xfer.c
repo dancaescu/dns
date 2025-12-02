@@ -23,6 +23,9 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/select.h>
+#include <arpa/inet.h>
 
 /* Global variables */
 memzone_ctx_t *Memzone = NULL;  /* In-memory zone storage */
@@ -143,8 +146,8 @@ static int transfer_all_zones(SQL *db) {
     int success_count = 0;
     int i;
 
-    /* Load zone configurations */
-    if (axfr_load_zones(db, specific_zone, &zones, &zone_count) < 0) {
+    /* Load zone configurations (tries config file first, then database) */
+    if (axfr_load_zones_auto(db, specific_zone, &zones, &zone_count) < 0) {
         Warnx(_("Failed to load zone configurations"));
         return -1;
     }
@@ -192,24 +195,109 @@ static int transfer_all_zones(SQL *db) {
     return 0;
 }
 
-/* Main transfer loop */
+/* Main transfer loop with NOTIFY support */
 static int transfer_loop(SQL *db) {
     int check_interval = 300;  /* 5 minutes default */
+    int notify_sockfd = -1;
+    time_t last_check = 0;
+    unsigned char notify_buf[512];
+    struct sockaddr_in notify_addr;
+    socklen_t notify_addrlen;
+
+    /* Create NOTIFY listener socket (UDP port 5300 - using alternate port to avoid conflicts) */
+    notify_sockfd = axfr_notify_listen(5300);
+    if (notify_sockfd < 0) {
+        Warnx(_("Failed to create NOTIFY listener - NOTIFY support disabled"));
+        /* Continue without NOTIFY support */
+    } else {
+        Notice(_("NOTIFY support enabled on UDP port 5300"));
+    }
 
     while (running) {
-        /* Perform transfers */
-        transfer_all_zones(db);
+        time_t now = time(NULL);
 
-        /* If not in daemon mode, exit after one cycle */
-        if (!daemon_mode) {
-            break;
+        /* Check if it's time for scheduled transfer check */
+        if (now - last_check >= check_interval) {
+            /* Perform scheduled transfers */
+            transfer_all_zones(db);
+            last_check = now;
+
+            /* If not in daemon mode, exit after one cycle */
+            if (!daemon_mode) {
+                break;
+            }
         }
 
-        /* Sleep between cycles */
-        Notice(_("Sleeping %d seconds until next check..."), check_interval);
-        for (int i = 0; i < check_interval && running; i++) {
+        /* Check for NOTIFY messages (if NOTIFY is enabled) */
+        if (notify_sockfd >= 0) {
+            fd_set readfds;
+            struct timeval tv;
+            int select_ret;
+
+            FD_ZERO(&readfds);
+            FD_SET(notify_sockfd, &readfds);
+
+            /* Wait for 1 second or until NOTIFY arrives */
+            tv.tv_sec = 1;
+            tv.tv_usec = 0;
+
+            select_ret = select(notify_sockfd + 1, &readfds, NULL, NULL, &tv);
+
+            if (select_ret > 0 && FD_ISSET(notify_sockfd, &readfds)) {
+                /* Receive NOTIFY message */
+                notify_addrlen = sizeof(notify_addr);
+                ssize_t recv_len = recvfrom(notify_sockfd, notify_buf, sizeof(notify_buf), 0,
+                                            (struct sockaddr *)&notify_addr, &notify_addrlen);
+
+                if (recv_len > 0) {
+                    char zone_name[256];
+                    uint16_t query_id;
+                    char source_ip[INET_ADDRSTRLEN];
+
+                    /* Get source IP */
+                    inet_ntop(AF_INET, &notify_addr.sin_addr, source_ip, sizeof(source_ip));
+
+                    /* Parse NOTIFY message */
+                    if (axfr_notify_parse(notify_buf, recv_len, zone_name, sizeof(zone_name), &query_id) == 0) {
+                        /* Send NOTIFY response */
+                        axfr_notify_respond(notify_sockfd, query_id, zone_name,
+                                          (struct sockaddr *)&notify_addr, notify_addrlen);
+
+                        /* Process NOTIFY and trigger transfer */
+                        int zone_id = axfr_notify_process(db, zone_name, source_ip);
+                        if (zone_id > 0) {
+                            /* Load zone configuration */
+                            axfr_zone_t *zones = NULL;
+                            int zone_count = 0;
+
+                            if (axfr_load_zones_auto(db, zone_id, &zones, &zone_count) == 0 && zone_count > 0) {
+                                Notice(_("Triggering immediate transfer for zone %s due to NOTIFY"), zone_name);
+
+                                /* Check serial and perform transfer */
+                                if (axfr_check_serial(&zones[0]) == 0) {
+                                    transfer_zone(db, &zones[0]);
+                                } else {
+                                    Notice(_("Zone %s is already up-to-date"), zone_name);
+                                }
+
+                                axfr_free_zone(&zones[0]);
+                                free(zones);
+                            }
+                        }
+                    }
+                }
+            } else if (select_ret < 0 && errno != EINTR) {
+                Warnx(_("select() error: %s"), strerror(errno));
+            }
+        } else {
+            /* No NOTIFY support, just sleep */
             sleep(1);
         }
+    }
+
+    /* Cleanup */
+    if (notify_sockfd >= 0) {
+        close(notify_sockfd);
     }
 
     return 0;

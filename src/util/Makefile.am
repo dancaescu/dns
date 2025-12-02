@@ -2,7 +2,7 @@
 ## $Id: Makefile.am,v 1.22 2005/04/20 16:49:12 bboy Exp $
 ##
 
-bin_PROGRAMS				=	mydnscheck mydnsexport mydnsimport mydnsptrconvert mydns-conf
+bin_PROGRAMS				=	mydnscheck mydnsexport mydnsimport mydnsptrconvert mydns-conf mydnsnotify
 
 localedir				=	$(datadir)/locale
 
@@ -17,6 +17,7 @@ mydnsexport_DEPENDENCIES		=	$(LIBDEPS)
 mydnsimport_DEPENDENCIES		=	$(LIBDEPS)
 mydnsptrconvert_DEPENDENCIES		=	$(LIBDEPS)
 mydns_conf_DEPENDENCIES			=	$(LIBDEPS)
+mydnsnotify_DEPENDENCIES		=	$(LIBDEPS)
 
 noinst_HEADERS				=	util.h
 
@@ -25,6 +26,7 @@ mydnsexport_SOURCES			=	export.c util.c
 mydnsimport_SOURCES			=	import.c import-axfr.c import-tinydns.c util.c
 mydnsptrconvert_SOURCES			=	libptr.c libptr.h ptrconvert.c util.c
 mydns_conf_SOURCES			=	conf.c
+mydnsnotify_SOURCES			=	notify.c util.c
 
 ctags:
 	ctags *.[ch] @MYDNSDIR@/*.[ch] @UTILDIR@/*.[ch]

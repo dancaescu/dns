@@ -27,6 +27,8 @@ struct timeval	current_tick;			/* Current micro-second time */
 time_t		current_time;			/* Current time */
 GEOIP_CTX	*GeoIP = NULL;			/* GeoIP context */
 memzone_ctx_t	*Memzone = NULL;		/* In-memory zone storage for AXFR slaves */
+dnscache_ctx_t	*DnsCache = NULL;		/* DNS caching/recursive resolver */
+doh_ctx_t	*DoH = NULL;			/* DNS over HTTPS server */
 
 static int	servers = 0;			/* Number of server processes to run */
 ARRAY		*Servers = NULL;
@@ -637,6 +639,18 @@ named_shutdown(int signo) {
   if (Memzone) {
     memzone_free(Memzone);
     Memzone = NULL;
+  }
+
+  /* Free DNS cache context */
+  if (DnsCache) {
+    dnscache_free(DnsCache);
+    DnsCache = NULL;
+  }
+
+  /* Stop and free DoH server */
+  if (DoH) {
+    doh_free(DoH);
+    DoH = NULL;
   }
 
   /* Close listening FDs - do not sockclose these are shared with other processes */
@@ -1615,13 +1629,77 @@ main(int argc, char **argv)
            Memzone->zone_count, Memzone->record_count, acl_count);
   }
 
+  /* Initialize DNS caching/recursive resolver */
+  /* Read cache configuration from mydns.conf */
+  int cache_enabled = -1;
+  int cache_size_mb = 0;
+  int cache_ttl_min = 0;
+  int cache_ttl_max = 0;
+  const char *cache_upstream = NULL;
+  const char *val;
+
+  if ((val = conf_get(&Conf, "dns-cache-enabled", NULL)) != NULL) {
+    cache_enabled = atoi(val);
+  }
+  if ((val = conf_get(&Conf, "dns-cache-size", NULL)) != NULL) {
+    cache_size_mb = atoi(val);
+  }
+  if ((val = conf_get(&Conf, "dns-cache-ttl-min", NULL)) != NULL) {
+    cache_ttl_min = atoi(val);
+  }
+  if ((val = conf_get(&Conf, "dns-cache-ttl-max", NULL)) != NULL) {
+    cache_ttl_max = atoi(val);
+  }
+  cache_upstream = conf_get(&Conf, "dns-cache-upstream", NULL);
+
+  DnsCache = dnscache_init(sql, cache_enabled, cache_size_mb,
+                            cache_ttl_min, cache_ttl_max, cache_upstream);
+  if (!DnsCache) {
+    Warnx(_("DNS cache initialization failed - caching disabled"));
+  } else {
+    const cache_stats_t *stats = dnscache_get_stats(DnsCache);
+    Notice(_("DNS cache initialized: %d MB, TTL range %d-%d seconds, %d upstream servers"),
+           DnsCache->config.cache_size_mb, DnsCache->config.cache_ttl_min,
+           DnsCache->config.cache_ttl_max, DnsCache->config.upstream_count);
+  }
+
+  /* Initialize DNS over HTTPS (DoH) server */
+  /* Read DoH configuration from mydns.conf */
+  int doh_enabled = -1;
+  int doh_port = 0;
+  const char *doh_path = NULL;
+  const char *doh_cert = NULL;
+  const char *doh_key = NULL;
+
+  if ((val = conf_get(&Conf, "doh-enabled", NULL)) != NULL) {
+    doh_enabled = atoi(val);
+  }
+  if ((val = conf_get(&Conf, "doh-port", NULL)) != NULL) {
+    doh_port = atoi(val);
+  }
+  doh_path = conf_get(&Conf, "doh-path", NULL);
+  doh_cert = conf_get(&Conf, "doh-cert", NULL);
+  doh_key = conf_get(&Conf, "doh-key", NULL);
+
+  DoH = doh_init(sql, doh_enabled, doh_port, doh_path, doh_cert, doh_key);
+  if (!DoH) {
+    Notice(_("DoH server not initialized - disabled or missing configuration"));
+  } else {
+    if (doh_start(DoH) == 0) {
+      Notice(_("DoH server started on port %d, path %s"),
+             DoH->config.port, DoH->config.path);
+    } else {
+      Warnx(_("DoH server failed to start"));
+      doh_free(DoH);
+      DoH = NULL;
+    }
+  }
+
   for (i = NORMAL_TASK; i <= PERIODIC_TASK; i++) {
     for (j = HIGH_PRIORITY_TASK; j <= LOW_PRIORITY_TASK; j ++) {
       TaskArray[i][j] = queue_init(task_type_name(i), task_priority_name(j));
     }
   }
-
-  cache_init();						/* Initialize cache */
 
   /* Start listening fd's */
   create_listeners();

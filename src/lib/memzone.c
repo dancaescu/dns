@@ -483,7 +483,7 @@ int memzone_load_from_db(memzone_ctx_t *ctx, SQL *db) {
         return -1;
     }
 
-    MYSQL_RES *res = sql_use_result(db);
+    MYSQL_RES *res = sql_query(db, query, strlen(query));
     if (!res) {
         return -1;
     }
@@ -516,7 +516,7 @@ int memzone_load_from_db(memzone_ctx_t *ctx, SQL *db) {
                     soa.zone_id);
 
             if (sql_query(db, rr_query, strlen(rr_query)) == 0) {
-                MYSQL_RES *rr_res = sql_use_result(db);
+                MYSQL_RES *rr_res = sql_query(db, rr_query, strlen(rr_query));
                 if (rr_res) {
                     MYSQL_ROW rr_row;
                     int records = 0;
@@ -535,7 +535,7 @@ int memzone_load_from_db(memzone_ctx_t *ctx, SQL *db) {
                             records++;
                         }
                     }
-                    sql_free_result(rr_res);
+                    sql_free(rr_res);
 
                     Notice(_("Loaded %d records for zone %s"), records, soa.origin);
                 }
@@ -543,7 +543,7 @@ int memzone_load_from_db(memzone_ctx_t *ctx, SQL *db) {
         }
     }
 
-    sql_free_result(res);
+    sql_free(res);
 
     Notice(_("Loaded %d slave zones from database into memory"), zones_loaded);
     return zones_loaded;
@@ -696,7 +696,8 @@ int memzone_check_access(memzone_ctx_t *ctx, acl_target_t target,
     mem_acl_t *acl = ctx->acl_head;
     while (acl) {
         /* Skip if rule doesn't apply to this target */
-        if (acl->target != target && acl->target != ACL_TARGET_BOTH) {
+        /* ACL_TARGET_SYSTEM applies to everything */
+        if (acl->target != target && acl->target != ACL_TARGET_SYSTEM) {
             acl = acl->next;
             continue;
         }
@@ -781,6 +782,27 @@ int memzone_check_access(memzone_ctx_t *ctx, acl_target_t target,
 }
 
 /**
+ * Check access with zone type awareness
+ * This checks both system-wide ACLs and zone-type-specific ACLs
+ */
+int memzone_check_dns_access(memzone_ctx_t *ctx, acl_target_t zone_type,
+                               const char *ip_str, const char *country_code, uint32_t asn) {
+    if (!ctx) return -1;
+
+    /* First check system-wide ACLs (applies to everything) */
+    int system_result = memzone_check_access(ctx, ACL_TARGET_SYSTEM, ip_str, country_code, asn);
+    if (system_result == 0) {
+        /* Denied by system-wide ACL */
+        return 0;
+    }
+
+    /* Then check zone-type-specific ACLs */
+    int zone_result = memzone_check_access(ctx, zone_type, ip_str, country_code, asn);
+
+    return zone_result;
+}
+
+/**
  * Load access control rules from database
  */
 int memzone_load_acl_from_db(memzone_ctx_t *ctx, SQL *db) {
@@ -789,15 +811,15 @@ int memzone_load_acl_from_db(memzone_ctx_t *ctx, SQL *db) {
     int rules_loaded = 0;
 
     /* Query all ACL rules from database */
-    const char *query = "SELECT id, type, target, is_whitelist, value, enabled, "
-                       "created_at FROM access_control_rules WHERE enabled = 1";
+    const char *query = "SELECT id, type, target, action, value, enabled, "
+                       "date_created FROM access_control WHERE enabled = 1";
 
     if (sql_query(db, query, strlen(query)) < 0) {
         Warnx(_("Failed to load ACL rules from database"));
         return -1;
     }
 
-    MYSQL_RES *res = sql_use_result(db);
+    MYSQL_RES *res = sql_query(db, query, strlen(query));
     if (!res) {
         return -1;
     }
@@ -808,9 +830,49 @@ int memzone_load_acl_from_db(memzone_ctx_t *ctx, SQL *db) {
         memset(&acl, 0, sizeof(acl));
 
         acl.id = atoi(row[0]);
-        acl.type = (acl_type_t)atoi(row[1]);
-        acl.target = (acl_target_t)atoi(row[2]);
-        acl.is_whitelist = atoi(row[3]);
+
+        /* Parse type ENUM: 'ip', 'network', 'country', 'asn' */
+        if (strcmp(row[1], "ip") == 0) {
+            acl.type = ACL_TYPE_IP;
+        } else if (strcmp(row[1], "network") == 0) {
+            acl.type = ACL_TYPE_NETWORK;
+        } else if (strcmp(row[1], "country") == 0) {
+            acl.type = ACL_TYPE_COUNTRY;
+        } else if (strcmp(row[1], "asn") == 0) {
+            acl.type = ACL_TYPE_ASN;
+        } else {
+            Warnx(_("Unknown ACL type '%s' for rule %d"), row[1], acl.id);
+            continue;
+        }
+
+        /* Parse target ENUM: 'system', 'master', 'slave', 'cache', 'webui', 'doh' */
+        if (strcmp(row[2], "system") == 0) {
+            acl.target = ACL_TARGET_SYSTEM;
+        } else if (strcmp(row[2], "master") == 0) {
+            acl.target = ACL_TARGET_MASTER;
+        } else if (strcmp(row[2], "slave") == 0) {
+            acl.target = ACL_TARGET_SLAVE;
+        } else if (strcmp(row[2], "cache") == 0) {
+            acl.target = ACL_TARGET_CACHE;
+        } else if (strcmp(row[2], "webui") == 0) {
+            acl.target = ACL_TARGET_WEBUI;
+        } else if (strcmp(row[2], "doh") == 0) {
+            acl.target = ACL_TARGET_DOH;
+        } else {
+            Warnx(_("Unknown ACL target '%s' for rule %d"), row[2], acl.id);
+            continue;
+        }
+
+        /* Parse action ENUM: 'allow' = whitelist, 'deny' = blacklist */
+        if (strcmp(row[3], "allow") == 0) {
+            acl.is_whitelist = 1;
+        } else if (strcmp(row[3], "deny") == 0) {
+            acl.is_whitelist = 0;
+        } else {
+            Warnx(_("Unknown ACL action '%s' for rule %d"), row[3], acl.id);
+            continue;
+        }
+
         strncpy(acl.value, row[4], MEMZONE_NAME_MAX - 1);
         acl.enabled = atoi(row[5]);
 
@@ -832,7 +894,7 @@ int memzone_load_acl_from_db(memzone_ctx_t *ctx, SQL *db) {
         }
     }
 
-    sql_free_result(res);
+    sql_free(res);
 
     Notice(_("Loaded %d ACL rules from database into memory"), rules_loaded);
     return rules_loaded;

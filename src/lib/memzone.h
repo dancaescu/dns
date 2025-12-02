@@ -68,11 +68,14 @@ typedef enum {
     ACL_TYPE_ASN = 4                   /* Autonomous System Number */
 } acl_type_t;
 
-/* Access control target */
+/* Access control target - Granular scopes */
 typedef enum {
-    ACL_TARGET_DNS = 1,                /* DNS query access */
-    ACL_TARGET_WEBUI = 2,              /* Web UI access */
-    ACL_TARGET_BOTH = 3                /* Both DNS and Web UI */
+    ACL_TARGET_SYSTEM = 1,             /* System-wide (applies to everything) */
+    ACL_TARGET_MASTER = 2,             /* Master zones only (authoritative) */
+    ACL_TARGET_SLAVE = 3,              /* Slave zones only (transferred) */
+    ACL_TARGET_CACHE = 4,              /* DNS caching/recursive queries only */
+    ACL_TARGET_WEBUI = 5,              /* Web UI access only */
+    ACL_TARGET_DOH = 6                 /* DNS over HTTPS only */
 } acl_target_t;
 
 /* Memory-based access control rule */
@@ -303,7 +306,7 @@ int memzone_delete_acl(memzone_ctx_t *ctx, uint32_t acl_id);
  * Check if an IP address is allowed access
  *
  * @param ctx Memory zone context
- * @param target Target type (DNS or WebUI)
+ * @param target Target type (SYSTEM, MASTER, SLAVE, CACHE, WEBUI, DOH)
  * @param ip_str IP address string
  * @param country_code Country code from GeoIP (can be NULL)
  * @param asn ASN number (0 if unknown)
@@ -311,6 +314,20 @@ int memzone_delete_acl(memzone_ctx_t *ctx, uint32_t acl_id);
  */
 int memzone_check_access(memzone_ctx_t *ctx, acl_target_t target,
                           const char *ip_str, const char *country_code, uint32_t asn);
+
+/**
+ * Check access with zone type awareness
+ * This checks both system-wide ACLs and zone-type-specific ACLs
+ *
+ * @param ctx Memory zone context
+ * @param zone_type Zone type (MASTER, SLAVE, or CACHE)
+ * @param ip_str IP address string
+ * @param country_code Country code from GeoIP (can be NULL)
+ * @param asn ASN number (0 if unknown)
+ * @return 1 if allowed, 0 if denied, -1 on error
+ */
+int memzone_check_dns_access(memzone_ctx_t *ctx, acl_target_t zone_type,
+                               const char *ip_str, const char *country_code, uint32_t asn);
 
 /**
  * Parse IP address and network mask
