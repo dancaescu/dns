@@ -52,6 +52,7 @@
           - autopoint
           - default-libmysqlclient-dev
           - libgeoip-dev
+          - texinfo
         state: present
       tags:
         - dependencies
