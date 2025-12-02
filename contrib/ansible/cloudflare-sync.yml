@@ -1,0 +1,32 @@
+- name: Setup Cloudflare Sync Cron Job
+  hosts: mydns_servers
+  become: true
+  vars:
+    sync_script: /scripts/mydns-ng-master/contrib/sync_cloudflare_records_multi_user.py
+    sync_frequency: '*/5 * * * *'
+  tasks:
+  - name: Copy sync script
+    copy:
+      src: '{{ sync_script }}'
+      dest: /usr/local/bin/sync_cloudflare.py
+      owner: root
+      mode: '0755'
+    tags:
+    - install
+  - name: Add cron job for Cloudflare sync
+    cron:
+      name: Sync Cloudflare zones
+      minute: '*/5'
+      job: /usr/local/bin/sync_cloudflare.py --verbose >> /var/log/cloudflare-sync.log
+        2>&1
+      user: root
+    tags:
+    - cron
+  - name: Create log file
+    file:
+      path: /var/log/cloudflare-sync.log
+      state: touch
+      owner: root
+      mode: '0644'
+    tags:
+    - config

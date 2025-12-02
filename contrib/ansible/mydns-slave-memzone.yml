@@ -1,0 +1,348 @@
+---
+# MyDNS MySQL-Free Slave Server Deployment
+# Target: ns2.fwd.multitel.net
+# Uses Memzone (shared memory) instead of MySQL database
+# Receives zones via AXFR/IXFR from master servers
+#
+# Copyright (C) 2025 Dan Caescu <dan.caescu@multitel.net>
+
+- name: Deploy MyDNS MySQL-Free Slave Server
+  hosts: mydns_slave_servers
+  become: true
+  vars:
+    mydns_source_dir: /opt/mydns-ng
+    mydns_config_dir: /etc/mydns
+    server_hostname: ns2.fwd.multitel.net
+
+  tasks:
+    - name: Set hostname
+      hostname:
+        name: "{{ server_hostname }}"
+      tags:
+        - config
+
+    - name: Update /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ ansible_default_ipv4.address }} {{ server_hostname }}"
+        regexp: "^{{ ansible_default_ipv4.address }}"
+      tags:
+        - config
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags:
+        - dependencies
+
+    - name: Install build dependencies (MySQL libs for compilation only)
+      apt:
+        name:
+          - build-essential
+          - autoconf
+          - automake
+          - libtool
+          - libssl-dev
+          - zlib1g-dev
+          - pkg-config
+          - git
+          - dnsutils
+          - gettext
+          - autopoint
+          - default-libmysqlclient-dev
+          - libgeoip-dev
+        state: present
+      tags:
+        - dependencies
+
+    - name: Create /usr/lib/mysql directory
+      file:
+        path: /usr/lib/mysql
+        state: directory
+        mode: '0755'
+      tags:
+        - dependencies
+
+    - name: Create library symlinks for MariaDB compatibility
+      file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        state: link
+      loop:
+        - { src: '/usr/bin/mariadb_config', dest: '/usr/bin/mysql_config' }
+        - { src: '/usr/lib/x86_64-linux-gnu/libmariadb.so', dest: '/usr/lib/libmysqlclient.so' }
+        - { src: '/usr/lib/x86_64-linux-gnu/libmariadb.so', dest: '/usr/lib/mysql/libmysqlclient.so' }
+        - { src: '/usr/lib/x86_64-linux-gnu/libz.so', dest: '/usr/lib/libz.so' }
+      tags:
+        - dependencies
+
+    - name: Check if MyDNS source exists
+      stat:
+        path: "{{ mydns_source_dir }}"
+      register: mydns_source
+
+    - name: Clone MyDNS repository
+      git:
+        repo: https://github.com/dancaescu/dns.git
+        dest: "{{ mydns_source_dir }}"
+        version: main
+        force: yes
+      when: not mydns_source.stat.exists
+      tags:
+        - source
+
+    - name: Update existing MyDNS repository
+      command: git pull
+      args:
+        chdir: "{{ mydns_source_dir }}"
+      when: mydns_source.stat.exists
+      tags:
+        - source
+
+    - name: Bootstrap build system
+      shell: bash ./bootstrap.sh
+      args:
+        chdir: "{{ mydns_source_dir }}"
+        creates: "{{ mydns_source_dir }}/configure"
+      tags:
+        - build
+
+    - name: Configure MyDNS (with MySQL support for compilation, but won't use at runtime)
+      command: >
+        ./configure
+        --prefix=/usr/local
+        --sysconfdir={{ mydns_config_dir }}
+        --localstatedir=/var
+        --with-mysql
+      args:
+        chdir: "{{ mydns_source_dir }}"
+      tags:
+        - build
+
+    - name: Build MyDNS
+      command: make -j{{ ansible_processor_vcpus }}
+      args:
+        chdir: "{{ mydns_source_dir }}"
+      tags:
+        - build
+
+    - name: Install MyDNS
+      command: make install
+      args:
+        chdir: "{{ mydns_source_dir }}"
+      tags:
+        - build
+
+    - name: Create MyDNS configuration directory
+      file:
+        path: "{{ mydns_config_dir }}"
+        state: directory
+        mode: '0755'
+      tags:
+        - config
+
+    - name: Create MyDNS log directory
+      file:
+        path: /var/log/mydns
+        state: directory
+        mode: '0755'
+      tags:
+        - config
+
+    - name: Create zone-masters.conf with master servers
+      copy:
+        content: |
+          # Zone Masters Configuration for ns2.fwd.multitel.net
+          # Format: zone_name:master_ip:master_port:use_tsig:tsig_key_name
+          #
+          # Master DNS Servers:
+          # - 169.197.174.16, 169.197.174.17
+          # - 66.45.22.16, 66.45.22.17
+          # - 164.90.130.155, 164.90.130.156
+          # - 138.197.135.65, 138.197.135.66
+          #
+          # Add your zones here. Examples:
+          # example.com:169.197.174.16:53:0:
+          # test.org:169.197.174.17:53:0:
+          #
+          # With TSIG authentication:
+          # secure.com:169.197.174.16:53:1:transfer-key
+        dest: "{{ mydns_config_dir }}/zone-masters.conf"
+        mode: '0644'
+      tags:
+        - config
+
+    - name: Create mydns.conf for slave (NO DATABASE)
+      copy:
+        content: |
+          ##
+          ## MyDNS MySQL-Free Slave Configuration
+          ## Server: ns2.fwd.multitel.net
+          ## Deployed: {{ ansible_date_time.iso8601 }}
+          ##
+
+          ### NO DATABASE SETTINGS - Running MySQL-free with Memzone! ###
+
+          ### Network Settings ###
+          bind = 0.0.0.0
+          #port = 53
+
+          ### DNS Cache (Recommended for slaves) ###
+          dns-cache-enabled = yes
+          dns-cache-size = 384
+          dns-cache-ttl-min = 120
+          dns-cache-ttl-max = 7200
+
+          ### Logging ###
+          log = /var/log/mydns/mydns.log
+          #verbose = 2
+
+          ### Zone Masters Configuration ###
+          # Zones are loaded from AXFR/IXFR transfers defined in zone-masters.conf
+          # Zone data is stored in shared memory (Memzone) at /dev/shm/mydns-zones
+          #
+          # Edit /etc/mydns/zone-masters.conf to add zones
+
+          ### Performance ###
+          #cache-size = 1024
+          #cache-expire = 60
+        dest: "{{ mydns_config_dir }}/mydns.conf"
+        mode: '0644'
+      tags:
+        - config
+
+    - name: Create systemd service file
+      copy:
+        content: |
+          [Unit]
+          Description=MyDNS MySQL-Free Slave Server (ns2.fwd.multitel.net)
+          After=network.target
+
+          [Service]
+          Type=forking
+          PIDFile=/var/run/mydns.pid
+          ExecStart=/usr/local/sbin/mydns -c {{ mydns_config_dir }}/mydns.conf -b
+          ExecReload=/bin/kill -HUP $MAINPID
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/mydns-slave.service
+        mode: '0644'
+      tags:
+        - service
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+      tags:
+        - service
+
+    - name: Enable MyDNS slave service
+      systemd:
+        name: mydns-slave
+        enabled: yes
+      tags:
+        - service
+
+    - name: Stop any existing MyDNS processes
+      command: pkill -9 mydns
+      failed_when: false
+      tags:
+        - service
+
+    - name: Start MyDNS slave service
+      systemd:
+        name: mydns-slave
+        state: started
+      tags:
+        - service
+      register: mydns_start
+
+    - name: Wait for MyDNS to start
+      wait_for:
+        port: 53
+        timeout: 30
+      when: mydns_start is changed
+      tags:
+        - service
+
+    - name: Test DNS resolution (caching)
+      command: dig @localhost google.com A +short
+      register: dns_test
+      failed_when: false
+      tags:
+        - verify
+
+    - name: Display DNS test result
+      debug:
+        msg: "DNS cache test: {{ dns_test.stdout_lines }}"
+      tags:
+        - verify
+
+    - name: Check MyDNS service status
+      command: systemctl status mydns-slave
+      register: service_status
+      failed_when: false
+      tags:
+        - verify
+
+    - name: Display service status
+      debug:
+        msg: "{{ service_status.stdout_lines }}"
+      tags:
+        - verify
+
+    - name: Check if memzone is available
+      stat:
+        path: /dev/shm/mydns-zones
+      register: memzone_check
+      tags:
+        - verify
+
+    - name: Display memzone status
+      debug:
+        msg: "Memzone shared memory: {{ 'CREATED' if memzone_check.stat.exists else 'Not yet created (add zones to zone-masters.conf)' }}"
+      tags:
+        - verify
+
+    - name: Display deployment summary
+      debug:
+        msg:
+          - "=========================================="
+          - "MyDNS MySQL-Free Slave Deployed Successfully!"
+          - "=========================================="
+          - "Server: ns2.fwd.multitel.net ({{ ansible_host }})"
+          - ""
+          - "Configuration:"
+          - "  - Config directory: {{ mydns_config_dir }}"
+          - "  - Zone masters config: {{ mydns_config_dir }}/zone-masters.conf"
+          - "  - DNS cache: ENABLED (384MB)"
+          - "  - Memzone: /dev/shm/mydns-zones"
+          - ""
+          - "Master DNS Servers Available:"
+          - "  - 169.197.174.16, 169.197.174.17"
+          - "  - 66.45.22.16, 66.45.22.17"
+          - "  - 164.90.130.155, 164.90.130.156"
+          - "  - 138.197.135.65, 138.197.135.66"
+          - ""
+          - "Management:"
+          - "  - Start:   systemctl start mydns-slave"
+          - "  - Stop:    systemctl stop mydns-slave"
+          - "  - Restart: systemctl restart mydns-slave"
+          - "  - Status:  systemctl status mydns-slave"
+          - "  - Logs:    tail -f /var/log/mydns/mydns.log"
+          - ""
+          - "Next Steps:"
+          - "  1. Configure zones on master servers to allow AXFR from {{ ansible_host }}"
+          - "  2. Add zone entries to {{ mydns_config_dir }}/zone-masters.conf"
+          - "     Format: zone_name:master_ip:53:0:"
+          - "     Example: example.com:169.197.174.16:53:0:"
+          - "  3. Restart MyDNS: systemctl restart mydns-slave"
+          - "  4. Verify zones loaded: ls -lh /dev/shm/mydns-zones"
+          - "  5. Test queries: dig @localhost yourdomain.com A"
+          - "=========================================="
+      tags:
+        - verify

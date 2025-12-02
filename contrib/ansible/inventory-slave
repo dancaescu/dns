@@ -1,0 +1,11 @@
+# Ansible Inventory for MyDNS MySQL-Free Slave Deployment
+# Target: ns2.fwd.multitel.net (188.166.151.18)
+
+[mydns_slave_servers]
+ns2.fwd.multitel.net ansible_host=188.166.151.18 ansible_port=22622 ansible_user=root
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+mydns_port=53
+dns_cache_enabled=true
+dns_cache_size=384

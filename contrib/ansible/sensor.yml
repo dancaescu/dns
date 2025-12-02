@@ -1,195 +1,49 @@
----
-# GeoIP Sensor Installation Playbook
-# Deploys sensor-api.py script to learn Cloudflare proxy IPs from different regions
-#
-# Usage:
-#   ansible-playbook -i inventory sensor.yml
-#   ansible-playbook -i inventory sensor.yml -e "sensor_location=eu"
-#
-# Tags:
-#   - dependencies: Install Python and libraries
-#   - deploy: Deploy sensor script
-#   - schedule: Set up systemd timer
-
-- name: Install and Configure GeoIP Sensor
-  hosts: sensor_servers
-  become: yes
-
+- name: Install GeoIP Sensor
+  hosts: sensors
+  become: true
   vars:
-    sensor_user: "sensor"
-    sensor_group: "sensor"
-    sensor_home: "/opt/sensor"
-    sensor_interval: 60  # minutes
-    python_version: "3"
-
+    sensor_dir: /opt/geosensor
+    sensor_user: sensor
+    sensor_api_port: 5000
   tasks:
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
-      tags: [dependencies, always]
-
-    - name: Install Python dependencies
-      apt:
-        name:
-          - python3
-          - python3-pip
-          - python3-venv
-        state: present
-      tags: [dependencies]
-
-    - name: Create sensor user
-      user:
-        name: "{{ sensor_user }}"
-        group: "{{ sensor_group }}"
-        system: yes
-        shell: /bin/bash
-        home: "{{ sensor_home }}"
-        create_home: yes
-      tags: [deploy]
-
-    - name: Create sensor directory
-      file:
-        path: "{{ sensor_home }}"
-        state: directory
-        owner: "{{ sensor_user }}"
-        group: "{{ sensor_group }}"
-        mode: '0755'
-      tags: [deploy]
-
-    - name: Copy sensor script
-      copy:
-        src: ../geosensors/sensor-api.py
-        dest: "{{ sensor_home }}/sensor-api.py"
-        owner: "{{ sensor_user }}"
-        group: "{{ sensor_group }}"
-        mode: '0755'
-      tags: [deploy]
-
-    - name: Install Python libraries
-      pip:
-        name:
-          - dnspython
-          - requests
-        executable: pip3
-        extra_args: --user
-      become_user: "{{ sensor_user }}"
-      tags: [dependencies]
-
-    - name: Verify API connectivity
-      uri:
-        url: "{{ api_url }}/api/sensors/script/version"
-        method: GET
-        status_code: 200
-        timeout: 10
-      register: api_check
-      failed_when: false
-      changed_when: false
-      tags: [deploy]
-
-    - name: Display API check result
-      debug:
-        msg: "API is {{ 'accessible' if api_check.status == 200 else 'not accessible' }}"
-      tags: [deploy]
-
-    - name: Fail if API is not accessible
-      fail:
-        msg: "Cannot reach API at {{ api_url }}. Please check api_url and network connectivity."
-      when: api_check.status != 200
-      tags: [deploy]
-
-    - name: Verify API token
-      uri:
-        url: "{{ api_url }}/api/sensors/{{ sensor_location | default('na') }}"
-        method: GET
-        headers:
-          Authorization: "Bearer {{ api_token }}"
-        status_code: 200
-        timeout: 10
-      register: token_check
-      failed_when: false
-      changed_when: false
-      when: api_token is defined and api_token != ""
-      tags: [deploy]
-
-    - name: Fail if API token is invalid
-      fail:
-        msg: "API token is invalid or sensor location '{{ sensor_location }}' not found. Please check api_token and sensor_location."
-      when:
-        - api_token is defined
-        - api_token != ""
-        - token_check.status is defined
-        - token_check.status != 200
-      tags: [deploy]
-
-    - name: Create sensor configuration file
-      template:
-        src: templates/sensor-config.sh.j2
-        dest: "{{ sensor_home }}/config.sh"
-        owner: "{{ sensor_user }}"
-        group: "{{ sensor_group }}"
-        mode: '0600'
-      tags: [deploy]
-
-    - name: Create sensor systemd service
-      template:
-        src: templates/sensor-api.service.j2
-        dest: /etc/systemd/system/sensor-api.service
-        owner: root
-        group: root
-        mode: '0644'
-      notify: reload systemd
-      tags: [schedule]
-
-    - name: Create sensor systemd timer
-      template:
-        src: templates/sensor-api.timer.j2
-        dest: /etc/systemd/system/sensor-api.timer
-        owner: root
-        group: root
-        mode: '0644'
-      notify: reload systemd
-      tags: [schedule]
-
-    - name: Enable sensor timer
-      systemd:
-        name: sensor-api.timer
-        enabled: yes
-        state: started
-        daemon_reload: yes
-      tags: [schedule]
-
-    - name: Run sensor manually for first time
-      command: >
-        {{ sensor_home }}/sensor-api.py
-        --location {{ sensor_location | default('na') }}
-        --api-url {{ api_url }}
-        --api-key {{ api_token }}
-      become_user: "{{ sensor_user }}"
-      register: sensor_run
-      failed_when: false
-      changed_when: false
-      when: api_token is defined and api_token != ""
-      tags: [deploy]
-
-    - name: Display sensor run result
-      debug:
-        var: sensor_run.stdout_lines
-      when: sensor_run is defined and sensor_run.stdout_lines is defined
-      tags: [deploy]
-
-    - name: Check timer status
-      command: systemctl list-timers sensor-api.timer
-      register: timer_status
-      changed_when: false
-      tags: [schedule]
-
-    - name: Display timer status
-      debug:
-        var: timer_status.stdout_lines
-      tags: [schedule]
-
-  handlers:
-    - name: reload systemd
-      systemd:
-        daemon_reload: yes
+  - name: Install Python dependencies
+    apt:
+      name:
+      - python3
+      - python3-pip
+      - python3-flask
+      state: present
+    tags:
+    - dependencies
+  - name: Create sensor directory
+    file:
+      path: '{{ sensor_dir }}'
+      state: directory
+      owner: '{{ sensor_user }}'
+      mode: '0755'
+    tags:
+    - install
+  - name: Copy sensor scripts
+    copy:
+      src: /scripts/mydns-ng-master/contrib/geosensors/
+      dest: '{{ sensor_dir }}/'
+      owner: '{{ sensor_user }}'
+      mode: '0755'
+    tags:
+    - install
+  - name: Install systemd service
+    template:
+      src: templates/geosensor.service.j2
+      dest: /lib/systemd/system/geosensor.service
+      owner: root
+      mode: '0644'
+    tags:
+    - service
+  - name: Enable and start sensor service
+    systemd:
+      name: geosensor
+      state: started
+      enabled: true
+      daemon_reload: true
+    tags:
+    - service

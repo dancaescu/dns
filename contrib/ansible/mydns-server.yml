@@ -1,204 +1,123 @@
----
-# MyDNS Server Installation Playbook
-# Installs and configures MyDNS authoritative DNS server with GeoIP support
-#
-# Usage:
-#   ansible-playbook -i inventory mydns-server.yml
-#
-# Tags:
-#   - dependencies: Install system dependencies
-#   - geoip: Install GeoIP library
-#   - build: Build MyDNS from source
-#   - config: Configure MyDNS
-#   - service: Set up and start systemd service
-
 - name: Install and Configure MyDNS Server
   hosts: mydns_servers
-  become: yes
-
+  become: true
   vars:
-    mydns_source_dir: "/scripts/mydns-ng-master"
-    mydns_user: "mydns"
-    mydns_group: "mydns"
+    mydns_source_dir: /scripts/mydns-ng-master
+    mydns_user: mydns
+    mydns_group: mydns
     mydns_port: 53
     geoip_enabled: true
-
+    doh_enabled: true
+    doh_port: 8443
+    dns_cache_enabled: true
   tasks:
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
-      tags: [dependencies, always]
-
-    - name: Install build dependencies
-      apt:
-        name:
-          - build-essential
-          - gcc
-          - make
-          - autoconf
-          - automake
-          - libtool
-          - libmysqlclient-dev
-          - pkg-config
-          - git
-        state: present
-      tags: [dependencies]
-
-    - name: Install GeoIP library
-      apt:
-        name:
-          - libgeoip-dev
-          - libgeoip1
-          - geoip-database
-        state: present
-      when: geoip_enabled | bool
-      tags: [geoip]
-
-    - name: Download GeoIP database
-      get_url:
-        url: "{{ geoip_database_url | default('https://github.com/maxmind/geoip-api-c/releases/download/v1.6.12/GeoIP.dat.gz') }}"
-        dest: /tmp/GeoIP.dat.gz
-      when: geoip_enabled | bool
-      tags: [geoip]
-
-    - name: Extract GeoIP database
-      shell: |
-        gunzip -c /tmp/GeoIP.dat.gz > /usr/share/GeoIP/GeoIP.dat
-        chmod 644 /usr/share/GeoIP/GeoIP.dat
-      args:
-        creates: /usr/share/GeoIP/GeoIP.dat
-      when: geoip_enabled | bool
-      tags: [geoip]
-
-    - name: Create MyDNS user
-      user:
-        name: "{{ mydns_user }}"
-        group: "{{ mydns_group }}"
-        system: yes
-        shell: /bin/false
-        home: /var/lib/mydns
-        create_home: no
-      tags: [config]
-
-    - name: Check if MyDNS source exists
-      stat:
-        path: "{{ mydns_source_dir }}"
-      register: mydns_src
-
-    - name: Clone MyDNS source
-      git:
-        repo: "https://github.com/yourusername/mydns-ng.git"  # Update with actual repo
-        dest: "{{ mydns_source_dir }}"
-        version: main
-      when: not mydns_src.stat.exists
-      tags: [build]
-
-    - name: Run autoreconf
-      command: autoreconf -fi
-      args:
-        chdir: "{{ mydns_source_dir }}"
-        creates: "{{ mydns_source_dir }}/configure"
-      tags: [build]
-
-    - name: Configure MyDNS
-      command: >
-        ./configure
-        --prefix=/usr
-        --sysconfdir=/etc
-        --localstatedir=/var
-        --with-mysql
-        {{ '--with-geoip' if geoip_enabled else '' }}
-      args:
-        chdir: "{{ mydns_source_dir }}"
-        creates: "{{ mydns_source_dir }}/Makefile"
-      tags: [build]
-
-    - name: Build MyDNS
-      make:
-        chdir: "{{ mydns_source_dir }}"
-        target: all
-      tags: [build]
-
-    - name: Install MyDNS
-      make:
-        chdir: "{{ mydns_source_dir }}"
-        target: install
-      tags: [build]
-
-    - name: Create MyDNS configuration file
-      template:
-        src: templates/mydns.conf.j2
-        dest: /etc/mydns.conf
-        owner: root
-        group: "{{ mydns_group }}"
-        mode: '0640'
-      notify: restart mydns
-      tags: [config]
-
-    - name: Create MyDNS systemd service
-      template:
-        src: templates/mydns.service.j2
-        dest: /etc/systemd/system/mydns.service
-        owner: root
-        group: root
-        mode: '0644'
-      notify:
-        - reload systemd
-        - restart mydns
-      tags: [service]
-
-    - name: Create PID directory
-      file:
-        path: /run/mydns
-        state: directory
-        owner: "{{ mydns_user }}"
-        group: "{{ mydns_group }}"
-        mode: '0755'
-      tags: [service]
-
-    - name: Create tmpfiles.d config for PID directory
-      copy:
-        content: |
-          d /run/mydns 0755 {{ mydns_user }} {{ mydns_group }} -
-        dest: /etc/tmpfiles.d/mydns.conf
-        owner: root
-        group: root
-        mode: '0644'
-      tags: [service]
-
-    - name: Enable and start MyDNS service
-      systemd:
-        name: mydns
-        enabled: yes
-        state: started
-        daemon_reload: yes
-      tags: [service]
-
-    - name: Wait for MyDNS to be ready
-      wait_for:
-        port: "{{ mydns_port }}"
-        timeout: 30
-      tags: [service]
-
-    - name: Verify MyDNS is responding
-      command: dig @localhost example.com
-      register: dig_result
-      failed_when: false
-      changed_when: false
-      tags: [service]
-
-    - name: Display MyDNS status
-      debug:
-        msg: "MyDNS is {{ 'running' if dig_result.rc == 0 else 'not responding' }}"
-      tags: [service]
-
-  handlers:
-    - name: reload systemd
-      systemd:
-        daemon_reload: yes
-
-    - name: restart mydns
-      systemd:
-        name: mydns
-        state: restarted
+  - name: Update apt cache
+    apt:
+      update_cache: true
+      cache_valid_time: 3600
+    tags:
+    - dependencies
+    - always
+  - name: Install build dependencies
+    apt:
+      name:
+      - build-essential
+      - gcc
+      - make
+      - autoconf
+      - automake
+      - libtool
+      - libmysqlclient-dev
+      - libssl-dev
+      - zlib1g-dev
+      - pkg-config
+      - git
+      - mysql-client
+      - libgeoip-dev
+      - libgeoip1
+      - geoip-database
+      - python3
+      - python3-pip
+      - python3-pymysql
+      - python3-requests
+      state: present
+    tags:
+    - dependencies
+  - name: Create library symlinks
+    file:
+      src: /usr/lib/x86_64-linux-gnu/{{ item }}
+      dest: /usr/lib/{{ item }}
+      state: link
+      force: true
+    loop:
+    - libmysqlclient.so
+    - libssl.so
+    - libcrypto.so
+    - libz.so
+    tags:
+    - dependencies
+  - name: Clone MyDNS source
+    git:
+      repo: https://github.com/yourusername/mydns-ng.git
+      dest: '{{ mydns_source_dir }}'
+      version: main
+    tags:
+    - build
+  - name: Configure MyDNS
+    command: ./configure
+    args:
+      chdir: '{{ mydns_source_dir }}'
+      creates: '{{ mydns_source_dir }}/config.status'
+    tags:
+    - build
+  - name: Build MyDNS
+    make:
+      chdir: '{{ mydns_source_dir }}'
+    tags:
+    - build
+  - name: Install MyDNS
+    make:
+      chdir: '{{ mydns_source_dir }}'
+      target: install
+    tags:
+    - build
+  - name: Create MyDNS directories
+    file:
+      path: '{{ item }}'
+      state: directory
+      owner: '{{ mydns_user }}'
+      group: '{{ mydns_group }}'
+      mode: '0755'
+    loop:
+    - /etc/mydns
+    - /var/lib/mydns
+    - /var/log/mydns
+    - /run/mydns
+    tags:
+    - config
+  - name: Copy MyDNS configuration
+    template:
+      src: templates/mydns.conf.j2
+      dest: /etc/mydns/mydns.conf
+      owner: root
+      group: '{{ mydns_group }}'
+      mode: '0640'
+    tags:
+    - config
+  - name: Install systemd service
+    template:
+      src: templates/mydns.service.j2
+      dest: /lib/systemd/system/mydns.service
+      owner: root
+      group: root
+      mode: '0644'
+    tags:
+    - service
+  - name: Enable and start MyDNS service
+    systemd:
+      name: mydns
+      state: started
+      enabled: true
+      daemon_reload: true
+    tags:
+    - service

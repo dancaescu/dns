@@ -1,0 +1,105 @@
+- name: Apply Database Schemas
+  hosts: mydns_servers
+  become: true
+  vars:
+    mysql_user: root
+    mysql_password: '{{ lookup(''env'', ''MYSQL_ROOT_PASSWORD'') }}'
+    mysql_database: did
+  tasks:
+  - name: Install mysql-client
+    apt:
+      name:
+      - mysql-client
+      state: present
+    tags:
+    - dependencies
+  - name: Apply doh-schema schema
+    mysql_db:
+      name: '{{ mysql_database }}'
+      state: import
+      target: /scripts/mydns-ng-master/contrib/doh-schema.sql
+      login_user: '{{ mysql_user }}'
+      login_password: '{{ mysql_password }}'
+    tags:
+    - schema
+    - doh-schema
+  - name: Apply dnsupdate-schema schema
+    mysql_db:
+      name: '{{ mysql_database }}'
+      state: import
+      target: /scripts/mydns-ng-master/contrib/dnsupdate-schema.sql
+      login_user: '{{ mysql_user }}'
+      login_password: '{{ mysql_password }}'
+    tags:
+    - schema
+    - dnsupdate-schema
+  - name: Apply acl-extended-schema schema
+    mysql_db:
+      name: '{{ mysql_database }}'
+      state: import
+      target: /scripts/mydns-ng-master/contrib/acl-extended-schema.sql
+      login_user: '{{ mysql_user }}'
+      login_password: '{{ mysql_password }}'
+    tags:
+    - schema
+    - acl-extended-schema
+  - name: Apply dnssec-schema schema
+    mysql_db:
+      name: '{{ mysql_database }}'
+      state: import
+      target: /scripts/mydns-ng-master/contrib/dnssec-schema.sql
+      login_user: '{{ mysql_user }}'
+      login_password: '{{ mysql_password }}'
+    tags:
+    - schema
+    - dnssec-schema
+  - name: Apply dns-cache-schema schema
+    mysql_db:
+      name: '{{ mysql_database }}'
+      state: import
+      target: /scripts/mydns-ng-master/contrib/dns-cache-schema.sql
+      login_user: '{{ mysql_user }}'
+      login_password: '{{ mysql_password }}'
+    tags:
+    - schema
+    - dns-cache-schema
+  - name: Apply user-cloudflare-acl-schema schema
+    mysql_db:
+      name: '{{ mysql_database }}'
+      state: import
+      target: /scripts/mydns-ng-master/contrib/user-cloudflare-acl-schema.sql
+      login_user: '{{ mysql_user }}'
+      login_password: '{{ mysql_password }}'
+    tags:
+    - schema
+    - user-cloudflare-acl-schema
+  - name: Apply axfr-slave-schema schema
+    mysql_db:
+      name: '{{ mysql_database }}'
+      state: import
+      target: /scripts/mydns-ng-master/contrib/axfr-slave-schema.sql
+      login_user: '{{ mysql_user }}'
+      login_password: '{{ mysql_password }}'
+    tags:
+    - schema
+    - axfr-slave-schema
+  - name: Apply axfr-ixfr-schema schema
+    mysql_db:
+      name: '{{ mysql_database }}'
+      state: import
+      target: /scripts/mydns-ng-master/contrib/axfr-ixfr-schema.sql
+      login_user: '{{ mysql_user }}'
+      login_password: '{{ mysql_password }}'
+    tags:
+    - schema
+    - axfr-ixfr-schema
+  - name: Apply tsig-schema schema
+    mysql_db:
+      name: '{{ mysql_database }}'
+      state: import
+      target: /scripts/mydns-ng-master/contrib/tsig-schema.sql
+      login_user: '{{ mysql_user }}'
+      login_password: '{{ mysql_password }}'
+    tags:
+    - schema
+    - tsig-schema

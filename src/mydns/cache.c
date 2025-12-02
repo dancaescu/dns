@@ -554,7 +554,7 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
           soa->expire = mem_zone->soa->expire;
           soa->minimum = mem_zone->soa->minimum;
           soa->ttl = mem_zone->soa->ttl;
-          soa->active = mem_zone->soa->active ? SQL_ACTIVE : SQL_INACTIVE;
+          soa->recursive = 0;
         }
 #if DEBUG_ENABLED && DEBUG_CACHE
         DebugX("cache", 1, _("%s: Found SOA in memzone: %s (ID %u)"), desctask(t), name, soa->id);
@@ -608,13 +608,23 @@ cache_soa:
         for (int i = 0; i < count; i++) {
           MYDNS_RR *new_rr = ALLOCATE(sizeof(MYDNS_RR), MYDNS_RR);
           if (new_rr) {
+            size_t data_len = strlen(results[i]->data);
+            memset(new_rr, 0, sizeof(MYDNS_RR));
+
             new_rr->id = results[i]->id;
             new_rr->zone = results[i]->zone_id;
-            strncpy(new_rr->name, results[i]->name, sizeof(new_rr->name) - 1);
+            new_rr->_name = STRDUP(results[i]->name);
             new_rr->type = results[i]->type;
-            strncpy(new_rr->data, results[i]->data, sizeof(new_rr->data) - 1);
+            new_rr->class = DNS_CLASS_IN;
+            new_rr->_data.len = data_len;
+            new_rr->_data.value = ALLOCATE(data_len + 1, char[]);
+            memcpy(new_rr->_data.value, results[i]->data, data_len);
+            ((char*)new_rr->_data.value)[data_len] = '\0';
             new_rr->aux = results[i]->aux;
             new_rr->ttl = results[i]->ttl;
+            new_rr->active = STRDUP("Y");
+            new_rr->stamp = NULL;
+            new_rr->serial = 0;
             new_rr->next = NULL;
 
             if (!first_rr) {

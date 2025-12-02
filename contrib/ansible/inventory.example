@@ -1,28 +1,34 @@
-# MyDNS-NG Ansible Inventory Example
-# Copy this file to 'inventory' and customize for your environment
+# MyDNS Ansible Inventory Example
+#
+# Copy this file to 'inventory' and adjust for your environment
 
 [mydns_servers]
-# Primary authoritative DNS servers
-ns1.example.com ansible_host=192.168.1.10 ansible_user=root
-ns2.example.com ansible_host=192.168.1.11 ansible_user=root
-
-[sensor_servers]
-# Geographic sensor locations for learning Cloudflare IPs
-sensor-na.example.com ansible_host=10.0.1.100 ansible_user=root sensor_location=na
-sensor-eu.example.com ansible_host=10.0.2.100 ansible_user=root sensor_location=eu
-sensor-apac.example.com ansible_host=10.0.3.100 ansible_user=root sensor_location=apac
+dns1.example.com ansible_host=192.168.1.10 ansible_user=root
+dns2.example.com ansible_host=192.168.1.11 ansible_user=root
 
 [webui_servers]
-# DNS Manager web interface servers
-web.example.com ansible_host=192.168.1.20 ansible_user=root
+webui.example.com ansible_host=192.168.1.20 ansible_user=root
+
+[sensors]
+sensor1.example.com ansible_host=192.168.1.30 ansible_user=root
+sensor2.example.com ansible_host=192.168.1.31 ansible_user=root
 
 [all:vars]
-# Global SSH settings
-ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 ansible_python_interpreter=/usr/bin/python3
 
-# Uncomment to use SSH keys
-# ansible_ssh_private_key_file=~/.ssh/id_rsa
+# Database configuration
+mysql_host=192.168.1.100
+mysql_user=root
+mysql_password=changeme
+mysql_database=did
 
-# Uncomment for bastion/jump host
-# ansible_ssh_common_args='-o ProxyCommand="ssh -W %h:%p -q bastion.example.com"'
+# MyDNS configuration
+mydns_port=53
+geoip_enabled=true
+doh_enabled=true
+doh_port=8443
+dns_cache_enabled=true
+
+# Web UI configuration
+webui_port=4000
+client_port=5173
