@@ -41,6 +41,98 @@ typedef struct _recursive_fwd_write_t {
   int		retries;
 } recursive_fwd_write_t;
 
+/**************************************************************************************************
+	GET_NEXT_HEALTHY_RECURSIVE_SERVER
+	Select next healthy server in round-robin fashion. If all servers are unhealthy,
+	retry servers that haven't been tried recently.
+**************************************************************************************************/
+static int
+get_next_healthy_recursive_server(void) {
+  int i, attempts = 0;
+  time_t now = time(NULL);
+  int start_index = recursive_server_current;
+
+  if (!recursive_servers || recursive_server_count == 0) {
+    return -1;
+  }
+
+  /* Try to find a healthy server, round-robin style */
+  while (attempts < recursive_server_count) {
+    int idx = (start_index + attempts) % recursive_server_count;
+
+    if (recursive_servers[idx].is_healthy) {
+      recursive_server_current = idx;
+#if DEBUG_ENABLED && DEBUG_RECURSIVE
+      DebugX("recursive", 1, _("selected healthy server [%d]: %s"),
+             idx, recursive_servers[idx].address);
+#endif
+      return idx;
+    }
+
+    /* If server is unhealthy but enough time has passed, retry it */
+    if ((now - recursive_servers[idx].last_failure) >= RECURSIVE_RETRY_TIMEOUT) {
+      recursive_servers[idx].is_healthy = 1;
+      recursive_servers[idx].consecutive_failures = 0;
+      recursive_server_current = idx;
+#if DEBUG_ENABLED && DEBUG_RECURSIVE
+      DebugX("recursive", 1, _("retrying previously failed server [%d]: %s"),
+             idx, recursive_servers[idx].address);
+#endif
+      return idx;
+    }
+
+    attempts++;
+  }
+
+  /* All servers are unhealthy and retry timeout not reached - use current anyway */
+  Warnx(_("all recursive servers unhealthy, using server [%d]: %s anyway"),
+        recursive_server_current, recursive_servers[recursive_server_current].address);
+  return recursive_server_current;
+}
+
+/**************************************************************************************************
+	MARK_RECURSIVE_SERVER_FAILED
+	Mark current recursive server as having failed. Update health status.
+**************************************************************************************************/
+static void
+mark_recursive_server_failed(void) {
+  if (!recursive_servers || recursive_server_count == 0) return;
+
+  int idx = recursive_server_current;
+  recursive_servers[idx].consecutive_failures++;
+  recursive_servers[idx].last_failure = time(NULL);
+
+  if (recursive_servers[idx].consecutive_failures >= RECURSIVE_MAX_FAILURES) {
+    recursive_servers[idx].is_healthy = 0;
+    Warnx(_("marking recursive server [%d]: %s as UNHEALTHY after %d consecutive failures"),
+          idx, recursive_servers[idx].address, recursive_servers[idx].consecutive_failures);
+  }
+
+  /* Move to next server */
+  recursive_server_current = (recursive_server_current + 1) % recursive_server_count;
+}
+
+/**************************************************************************************************
+	MARK_RECURSIVE_SERVER_SUCCESS
+	Mark current recursive server as having succeeded. Reset failure counters.
+**************************************************************************************************/
+static void
+mark_recursive_server_success(void) {
+  if (!recursive_servers || recursive_server_count == 0) return;
+
+  int idx = recursive_server_current;
+  recursive_servers[idx].consecutive_failures = 0;
+  recursive_servers[idx].last_success = time(NULL);
+
+  if (!recursive_servers[idx].is_healthy) {
+#if DEBUG_ENABLED && DEBUG_RECURSIVE
+    DebugX("recursive", 1, _("marking recursive server [%d]: %s as HEALTHY after successful query"),
+           idx, recursive_servers[idx].address);
+#endif
+  }
+  recursive_servers[idx].is_healthy = 1;
+}
+
 typedef struct _recursive_fwd_read_t {
   char		*reply;
   uint16_t	replylength;
@@ -51,15 +143,43 @@ typedef struct _recursive_fwd_read_t {
 static int
 get_serveraddr(struct sockaddr **rsa) {
   socklen_t		rsalen = 0;
+  int			server_idx;
 
-  if (recursive_family == AF_INET) {
-    *rsa = (struct sockaddr*)&recursive_sa;
-    rsalen = sizeof(struct sockaddr_in);
+  /* Use round-robin with health checking if multiple servers configured */
+  if (recursive_servers && recursive_server_count > 0) {
+    /* Select next healthy server */
+    server_idx = get_next_healthy_recursive_server();
+    if (server_idx < 0) {
+      Warnx(_("get_serveraddr: no recursive servers available"));
+      return 0;
+    }
+
+    /* Update global state for compatibility */
+    recursive_family = recursive_servers[server_idx].family;
+    recursive_fwd_server = recursive_servers[server_idx].address;
+
+    if (recursive_family == AF_INET) {
+      memcpy(&recursive_sa, &recursive_servers[server_idx].addr.sa4, sizeof(struct sockaddr_in));
+      *rsa = (struct sockaddr*)&recursive_sa;
+      rsalen = sizeof(struct sockaddr_in);
 #if HAVE_IPV6
-  } else if (recursive_family == AF_INET6) {
-    *rsa = (struct sockaddr*)&recursive_sa6;
-    rsalen = sizeof(struct sockaddr_in6);
+    } else if (recursive_family == AF_INET6) {
+      memcpy(&recursive_sa6, &recursive_servers[server_idx].addr.sa6, sizeof(struct sockaddr_in6));
+      *rsa = (struct sockaddr*)&recursive_sa6;
+      rsalen = sizeof(struct sockaddr_in6);
 #endif
+    }
+  } else {
+    /* Fallback to old single-server mode */
+    if (recursive_family == AF_INET) {
+      *rsa = (struct sockaddr*)&recursive_sa;
+      rsalen = sizeof(struct sockaddr_in);
+#if HAVE_IPV6
+    } else if (recursive_family == AF_INET6) {
+      *rsa = (struct sockaddr*)&recursive_sa6;
+      rsalen = sizeof(struct sockaddr_in6);
+#endif
+    }
   }
   return rsalen;
 }
@@ -190,6 +310,8 @@ __recursive_fwd_write_timeout(TASK *t, void *data) {
   if ((t->status != NEED_RECURSIVE_FWD_RETRY)
       /* If the task has already retried the maximum times then throw an error */
       || (querypacket->retries++ > recursion_retries)) {
+    /* Mark server as failed due to timeout */
+    mark_recursive_server_failed();
     dnserror(t, DNS_RCODE_SERVFAIL, ERR_TIMEOUT);
     t->status = NEED_WRITE;
     if (t->protocol == SOCK_STREAM)
@@ -521,6 +643,9 @@ __recursive_fwd_read(TASK *t, char *reply, int replylen) {
 
   /* Record the fact that this question was forwarded to another server */
   t->forwarded = 1;
+
+  /* Mark server as successful */
+  mark_recursive_server_success();
 
   t->status = NEED_WRITE;
 

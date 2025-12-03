@@ -80,6 +80,27 @@ extern const char	*recursion_algorithm;
 extern char		*recursive_fwd_server;		/* Name of server for recursive forwarding */
 extern int		recursive_family;		/* Protocol family for recursion */
 
+/* Round-robin recursive server with health checking */
+typedef struct {
+  char *address;               /* Original address string (e.g., "8.8.8.8") */
+  int family;                  /* AF_INET or AF_INET6 */
+  union {
+    struct sockaddr_in sa4;
+    struct sockaddr_in6 sa6;
+  } addr;
+  int is_healthy;              /* 1 if healthy, 0 if unhealthy */
+  int consecutive_failures;    /* Count of consecutive failures */
+  time_t last_failure;         /* Timestamp of last failure */
+  time_t last_success;         /* Timestamp of last success */
+} recursive_server_t;
+
+extern recursive_server_t *recursive_servers;  /* Array of recursive servers */
+extern int recursive_server_count;             /* Number of servers in array */
+extern int recursive_server_current;           /* Current round-robin index */
+
+#define RECURSIVE_MAX_FAILURES 3        /* Mark unhealthy after N failures */
+#define RECURSIVE_RETRY_TIMEOUT 60      /* Retry unhealthy servers after N seconds */
+
 #if DEBUG_ENABLED
 extern int		debug_enabled;
 

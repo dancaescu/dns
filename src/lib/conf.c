@@ -67,6 +67,11 @@ const char	*recursion_algorithm = "linear";
 char		*recursive_fwd_server = NULL;		/* Name of server for recursive forwarding */
 int		recursive_family = AF_INET;		/* Protocol family for recursion */
 
+/* Round-robin recursive servers with health checking */
+recursive_server_t *recursive_servers = NULL;		/* Array of recursive servers */
+int		recursive_server_count = 0;		/* Number of servers in array */
+int		recursive_server_current = 0;		/* Current round-robin index */
+
 int		wildcard_recursion = 0;			/* Search ancestor zones for wildcard matches - count give levels -1 means infinite */
 
 const char	*mydns_dbengine = "MyISAM";
@@ -420,65 +425,138 @@ check_config_file_perms(void) {
 
 /**************************************************************************************************
 	CONF_SET_RECURSIVE
-	If the 'recursive' configuration option was specified, set the recursive server.
+	If the 'recursive' configuration option was specified, parse comma-separated servers
+	and initialize round-robin with health checking.
 **************************************************************************************************/
 static void
 conf_set_recursive(void) {
-  char		*c;
+  char		*c, *token, *saveptr;
   const char	*address = conf_get(&Conf, "recursive", NULL);
+  char		addr_copy[2048];
   char		addr[512];
   int		port = 53;
+  int		count = 0, i = 0;
 
   /* MySQL-free mode: DNS cache doesn't need forward_recursive flag */
   /* It handles queries directly in resolve.c via dnscache_resolve() */
   if ((!address || !address[0])) {
     return;
   }
-  strncpy(addr, address, sizeof(addr)-1);
+
+  /* Count comma-separated servers */
+  strncpy(addr_copy, address, sizeof(addr_copy)-1);
+  addr_copy[sizeof(addr_copy)-1] = '\0';
+
+  token = strtok_r(addr_copy, ",", &saveptr);
+  while (token) {
+    count++;
+    token = strtok_r(NULL, ",", &saveptr);
+  }
+
+  if (count == 0) return;
+
+  /* Allocate array of servers */
+  recursive_servers = (recursive_server_t*)calloc(count, sizeof(recursive_server_t));
+  if (!recursive_servers) {
+    Err(_("conf_set_recursive: failed to allocate memory for recursive servers"));
+    return;
+  }
+  recursive_server_count = count;
+  recursive_server_current = 0;
+
+  /* Parse each server */
+  strncpy(addr_copy, address, sizeof(addr_copy)-1);
+  addr_copy[sizeof(addr_copy)-1] = '\0';
+
+  token = strtok_r(addr_copy, ",", &saveptr);
+  i = 0;
+
+  while (token && i < count) {
+    /* Trim whitespace */
+    while (*token == ' ' || *token == '\t') token++;
+
+    strncpy(addr, token, sizeof(addr)-1);
+    addr[sizeof(addr)-1] = '\0';
+    port = 53;
 
 #if HAVE_IPV6
-  if (is_ipv6(addr)) {		/* IPv6 - treat '+' as port separator */
-    recursive_family = AF_INET6;
-    if ((c = strchr(addr, '+'))) {
-      *c++ = '\0';
-      if (!(port = atoi(c)))
-	port = 53;
-    }
-    if (inet_pton(AF_INET6, addr, &recursive_sa6.sin6_addr) <= 0) {
-      Warnx("%s: %s", address, _("invalid network address for recursive server"));
-      return;
-    }
-    recursive_sa6.sin6_family = AF_INET6;
-    recursive_sa6.sin6_port = htons(port);
-    forward_recursive = 1;
+    if (is_ipv6(addr)) {		/* IPv6 - treat '+' as port separator */
+      if ((c = strchr(addr, '+'))) {
+        *c++ = '\0';
+        if (!(port = atoi(c)))
+          port = 53;
+      }
+      if (inet_pton(AF_INET6, addr, &recursive_servers[i].addr.sa6.sin6_addr) <= 0) {
+        Warnx("%s: %s", addr, _("invalid IPv6 address for recursive server"));
+        token = strtok_r(NULL, ",", &saveptr);
+        continue;
+      }
+      recursive_servers[i].family = AF_INET6;
+      recursive_servers[i].addr.sa6.sin6_family = AF_INET6;
+      recursive_servers[i].addr.sa6.sin6_port = htons(port);
+      recursive_servers[i].address = STRDUP(token);
+      recursive_servers[i].is_healthy = 1;
+      recursive_servers[i].consecutive_failures = 0;
+      recursive_servers[i].last_success = time(NULL);
+      recursive_servers[i].last_failure = 0;
+
 #if DEBUG_ENABLED && DEBUG_CONF
-    DebugX("conf", 1,_("recursive forwarding service through %s:%u"),
-	  ipaddr(AF_INET6, &recursive_sa6.sin6_addr), port);
+      DebugX("conf", 1,_("added recursive server [%d]: %s:%u (IPv6)"), i,
+            ipaddr(AF_INET6, &recursive_servers[i].addr.sa6.sin6_addr), port);
 #endif
-    recursive_fwd_server = STRDUP(address);
-  } else {			/* IPv4 - treat '+' or ':' as port separator  */
+    } else {			/* IPv4 - treat '+' or ':' as port separator  */
 #endif
-    recursive_family = AF_INET;
-    if ((c = strchr(addr, '+')) || (c = strchr(addr, ':'))) {
-      *c++ = '\0';
-      if (!(port = atoi(c)))
-	port = 53;
-    }
-    if (inet_pton(AF_INET, addr, &recursive_sa.sin_addr) <= 0) {
-      Warnx("%s: %s", address, _("invalid network address for recursive server"));
-      return;
-    }
-    recursive_sa.sin_family = AF_INET;
-    recursive_sa.sin_port = htons(port);
-#if DEBUG_ENABLED &&DEBUG_CONF
-    DebugX("conf", 1,_("recursive forwarding service through %s:%u"),
-	  ipaddr(AF_INET, &recursive_sa.sin_addr), port);
+      if ((c = strchr(addr, '+')) || (c = strchr(addr, ':'))) {
+        *c++ = '\0';
+        if (!(port = atoi(c)))
+          port = 53;
+      }
+      if (inet_pton(AF_INET, addr, &recursive_servers[i].addr.sa4.sin_addr) <= 0) {
+        Warnx("%s: %s", addr, _("invalid IPv4 address for recursive server"));
+        token = strtok_r(NULL, ",", &saveptr);
+        continue;
+      }
+      recursive_servers[i].family = AF_INET;
+      recursive_servers[i].addr.sa4.sin_family = AF_INET;
+      recursive_servers[i].addr.sa4.sin_port = htons(port);
+      recursive_servers[i].address = STRDUP(token);
+      recursive_servers[i].is_healthy = 1;
+      recursive_servers[i].consecutive_failures = 0;
+      recursive_servers[i].last_success = time(NULL);
+      recursive_servers[i].last_failure = 0;
+
+#if DEBUG_ENABLED && DEBUG_CONF
+      DebugX("conf", 1,_("added recursive server [%d]: %s:%u (IPv4)"), i,
+            ipaddr(AF_INET, &recursive_servers[i].addr.sa4.sin_addr), port);
 #endif
-    forward_recursive = 1;
-    recursive_fwd_server = STRDUP(address);
 #if HAVE_IPV6
-  }
+    }
 #endif
+
+    i++;
+    token = strtok_r(NULL, ",", &saveptr);
+  }
+
+  /* Update actual count in case some servers failed to parse */
+  recursive_server_count = i;
+
+  if (recursive_server_count > 0) {
+    forward_recursive = 1;
+
+    /* Set initial server for compatibility */
+    recursive_family = recursive_servers[0].family;
+    recursive_fwd_server = recursive_servers[0].address;
+    if (recursive_family == AF_INET) {
+      memcpy(&recursive_sa, &recursive_servers[0].addr.sa4, sizeof(struct sockaddr_in));
+#if HAVE_IPV6
+    } else {
+      memcpy(&recursive_sa6, &recursive_servers[0].addr.sa6, sizeof(struct sockaddr_in6));
+#endif
+    }
+
+    Notice(_("initialized %d recursive server(s) with round-robin and health checking"),
+           recursive_server_count);
+  }
 
   if (!forward_recursive) return;
 
