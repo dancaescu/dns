@@ -554,10 +554,18 @@ resolve(TASK *t, datasection_t section, dns_qtype_t qtype, char *fqdn, int level
 #endif
           return dnserror(t, DNS_RCODE_REFUSED, ERR_ZONE_NOT_FOUND);
         }
-        /* Cache miss - fall through to traditional recursion */
+        /* Cache miss - DNS cache will handle the recursive resolution */
+#if DEBUG_ENABLED && DEBUG_RESOLVE
+        DebugX("resolve", 1, _("%s: DNS cache miss for %s, cache will resolve recursively"),
+               desctask(t), fqdn);
+#endif
+        /* Cache will handle recursive resolution internally, mark recursion available */
+        t->hdr.ra = 1;
+        return TASK_EXECUTED;
       }
 
-      if (forward_recursive && t->hdr.rd) {
+      /* Only use traditional recursive forwarding if DNS cache is not available */
+      if (forward_recursive && t->hdr.rd && (!DnsCache || !DnsCache->config.enabled)) {
 	return recursive_fwd(t);
       }
       return dnserror(t, DNS_RCODE_REFUSED, ERR_ZONE_NOT_FOUND);
