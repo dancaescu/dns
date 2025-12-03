@@ -553,15 +553,22 @@ resolve(TASK *t, datasection_t section, dns_qtype_t qtype, char *fqdn, int level
                  desctask(t), fqdn, client_ip);
 #endif
           return dnserror(t, DNS_RCODE_REFUSED, ERR_ZONE_NOT_FOUND);
-        }
-        /* Cache miss - DNS cache will handle the recursive resolution */
+        } else if (cache_result == 0) {
+          /* No records found (NXDOMAIN) - return empty response with RA flag */
 #if DEBUG_ENABLED && DEBUG_RESOLVE
-        DebugX("resolve", 1, _("%s: DNS cache miss for %s, cache will resolve recursively"),
-               desctask(t), fqdn);
+          DebugX("resolve", 1, _("%s: DNS cache returned NXDOMAIN for %s"),
+                 desctask(t), fqdn);
 #endif
-        /* Cache will handle recursive resolution internally, mark recursion available */
-        t->hdr.ra = 1;
-        return TASK_EXECUTED;
+          t->hdr.ra = 1;  /* Recursion available */
+          return TASK_EXECUTED;
+        } else {
+          /* Upstream query failed (cache_result == -1) */
+#if DEBUG_ENABLED && DEBUG_RESOLVE
+          DebugX("resolve", 1, _("%s: DNS cache upstream query failed for %s"),
+                 desctask(t), fqdn);
+#endif
+          return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
+        }
       }
 
       /* Only use traditional recursive forwarding if DNS cache is not available */
