@@ -726,6 +726,8 @@ __recursive_fwd_read_udp(TASK *t, void *data) {
   taskexec_t		res = TASK_FAILED;
   int			fd = -1;
 
+  Warnx(_("DEBUG __recursive_fwd_read_udp: ENTRY for fd=%d, status=%d"), t->fd, t->status);
+
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
   DebugX("recursive", 1, _("%s: recursive_fwd_read() UDP"), desctask(t));
 #endif
@@ -997,20 +999,18 @@ __recursive_fwd_read_tcp(TASK *t, void *data) {
 
 static taskexec_t
 __recursive_fwd_udp(TASK *t) {
-  QUEUE **connectQ = NULL;
-
   Warnx(_("DEBUG: __recursive_fwd_udp() ENTRY for %s"), t->qname);
 
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
   DebugX("recursive", 1, _("%s: recursive_fwd() protocol = UDP"), desctask(t));
 #endif
 
-  t->status = NEED_RECURSIVE_FWD_WRITE;
-
+  /* Create master task if it doesn't exist */
   if (!udp_recursive_master) {
     taskexec_t		rv = TASK_FAILED;
     struct sockaddr	*rsa = NULL;
 
+    Warnx(_("DEBUG: __recursive_fwd_udp() creating master task"));
     sockclose(recursive_udp_fd);
     rv = __recursive_start_comms(t, &recursive_udp_fd, SOCK_DGRAM);
 
@@ -1024,26 +1024,30 @@ __recursive_fwd_udp(TASK *t) {
     Warnx(_("DEBUG: Created udp_recursive_master task, status=%d, fd=%d"),
           udp_recursive_master->status, udp_recursive_master->fd);
 
-    connectQ = ALLOCATE(sizeof(connectQ), QUEUE*);
-    *connectQ = queue_init("recursive", "udp");
-    task_add_extension(udp_recursive_master, connectQ, __recursive_fwd_read_free,
+    /* No connectQ - tasks stay in TaskArray */
+    task_add_extension(udp_recursive_master, NULL, __recursive_fwd_read_free,
 		       __recursive_fwd_read_udp, __recursive_fwd_read_timeout);
-
   }
 
+  /* Keep task as PERIODIC so it gets checked regularly */
   task_change_type(t, PERIODIC_TASK);
   t->timeout = current_time;
   udp_recursive_master->timeout = current_time + 120;
 
+  /* Check if master is connected */
   if (udp_recursive_master->status == NEED_RECURSIVE_FWD_CONNECT
       || udp_recursive_master->status == NEED_RECURSIVE_FWD_CONNECTING) {
-#if DEBUG_ENABLED && DEBUG_RECURSIVE
-    DebugX("recursive", 1, _("%s: recursive_fwd() queuing task while waiting for connect"), desctask(t));
-#endif
-    connectQ = (QUEUE**)(udp_recursive_master->extension);
-    requeue(connectQ, t);
+    /* Master is still connecting - mark query as waiting */
+    Warnx(_("DEBUG: __recursive_fwd_udp() master connecting, query %s waiting"), t->qname);
     t->status = NEED_RECURSIVE_FWD_CONNECTED;
+    /* Task stays in TaskArray as PERIODIC_TASK and will be checked again */
+    udp_recursion_running++;
+    return TASK_CONTINUE;  /* Keep task alive, will retry on next check */
   }
+
+  /* Master is connected - proceed with write */
+  Warnx(_("DEBUG: __recursive_fwd_udp() master connected, proceeding with write for %s"), t->qname);
+  t->status = NEED_RECURSIVE_FWD_WRITE;
   task_add_extension(t, NULL, __recursive_fwd_write_free,
 		     __recursive_fwd_write_udp, __recursive_fwd_write_timeout);
 
@@ -1130,7 +1134,6 @@ __recursive_fwd_connect_udp(TASK *t) {
   struct sockaddr	*rsa = NULL;
   socklen_t		rsalen = get_serveraddr(&rsa);
   int			fd = -1;
-  QUEUE			**connectQ = NULL;
 
   Warnx(_("DEBUG: __recursive_fwd_connect_udp() ENTRY for %s"), desctask(t));
 
@@ -1155,50 +1158,16 @@ __recursive_fwd_connect_udp(TASK *t) {
 
   Warnx(_("DEBUG __recursive_fwd_connect_udp: connect() SUCCESS"));
 
+  /* Mark master as connected and ready to send queries */
   t->status = NEED_RECURSIVE_FWD_READ;
   t->timeout = current_time + 120;
 
   assert(t == udp_recursive_master);
 
-  connectQ = (QUEUE**)(t->extension);
-  Warnx(_("DEBUG __recursive_fwd_connect_udp: About to restore queued tasks, connectQ=%p"), connectQ);
-  if (connectQ && *connectQ && (*connectQ)->head) {
-    Warnx(_("DEBUG __recursive_fwd_connect_udp: connectQ is not NULL, *connectQ=%p, head=%p"),
-          *connectQ, (*connectQ)->head);
+  /* No need to restore tasks - they're already in TaskArray as PERIODIC_TASK */
+  /* They'll automatically check master status on their next iteration */
+  Warnx(_("DEBUG __recursive_fwd_connect_udp: Master connected, waiting tasks will proceed on next check"));
 
-    /* Move all waiting tasks from connectQ back to TaskArray for processing */
-    /* Use safe iteration - get task, save next, then move */
-    TASK *queryt = (*connectQ)->head;
-    while (queryt) {
-      TASK *next_task = queryt->next;  /* Save next pointer BEFORE requeueing */
-
-      Warnx(_("DEBUG __recursive_fwd_connect_udp: Restoring task %s"), desctask(queryt));
-#if DEBUG_ENABLED && DEBUG_RECURSIVE
-      DebugX("recursive", 1, _("%s: recursive_fwd_connect() restoring task after connect"), desctask(queryt));
-#endif
-
-      queryt->status = NEED_RECURSIVE_FWD_WRITE;
-      queryt->timeout = current_time;
-
-      Warnx(_("DEBUG __recursive_fwd_connect_udp: Task %s status=%d, calling requeue"),
-            desctask(queryt), queryt->status);
-
-      /* Requeue before changing type - requeue() needs current type to remove from correct queue */
-      requeue(&TaskArray[NORMAL_TASK][queryt->priority], queryt);
-      queryt->type = NORMAL_TASK;  /* Update type after requeue */
-
-      Warnx(_("DEBUG __recursive_fwd_connect_udp: Task %s requeued successfully"), desctask(queryt));
-
-      /* Move to next task using saved pointer */
-      queryt = next_task;
-    }
-    Warnx(_("DEBUG __recursive_fwd_connect_udp: All tasks restored, releasing connectQ"));
-    RELEASE(*connectQ);
-    RELEASE(connectQ);
-    t->extension = NULL;
-  }
-
-  Warnx(_("DEBUG __recursive_fwd_connect_udp: Returning TASK_CONTINUE"));
   return TASK_CONTINUE;
 }
 
@@ -1395,6 +1364,8 @@ recursive_fwd_write(TASK *t) {
 **************************************************************************************************/
 taskexec_t
 recursive_fwd_read(TASK *t) {
+  Warnx(_("DEBUG: recursive_fwd_read() ENTRY for fd=%d, protocol=%d, status=%d"),
+        t->fd, t->protocol, t->status);
 
   switch (t->protocol) {
 

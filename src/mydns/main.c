@@ -915,6 +915,12 @@ buildIOtaskItem(TASK *t) {
   static struct pollfd	_item;
   struct pollfd		*item = NULL;
 
+  /* Debug: Log all IO tasks with NEED_RECURSIVE_FWD_READ status */
+  if (t->status == 262417) { /* NEED_RECURSIVE_FWD_READ */
+    Warnx(_("DEBUG buildIOtaskItem: Master task fd=%d, status=%d, has_fd=%d, needs_mask=%d"),
+          t->fd, t->status, (t->fd != 0), (t->status & (Needs2Read|Needs2Write)));
+  }
+
   if (t->fd && (t->status & (Needs2Read|Needs2Write))) {
     item = &_item;
     item->fd = t->fd;
@@ -926,6 +932,14 @@ buildIOtaskItem(TASK *t) {
     if (t->status & Needs2Write) {
       item->events |= POLLOUT;
     }
+
+    /* Debug: Log when master task is added to items */
+    if (t->status == 262417) {
+      Warnx(_("DEBUG buildIOtaskItem: Master task ADDED to poll items, fd=%d, events=%d"),
+            item->fd, item->events);
+    }
+  } else if (t->status == 262417) {
+    Warnx(_("DEBUG buildIOtaskItem: Master task NOT added - fd check or status check failed"));
   }
   return item;
 }
@@ -1009,6 +1023,22 @@ scheduleTaskQ(QUEUE *taskQ,
 static void
 scheduleTasks(struct pollfd *items[], int *timeoutWanted, int *numfds, int *maxnumfds) {
   int i = 0, j = 0;
+
+  /* Debug: Log IO_TASK queue before scheduling */
+  QUEUE *ioTaskQ = TaskArray[IO_TASK][HIGH_PRIORITY_TASK];
+  TASK *temp = ioTaskQ->head;
+  int count = 0;
+  while (temp) {
+    if (temp->status == 262417) { /* NEED_RECURSIVE_FWD_READ */
+      Warnx(_("DEBUG scheduleTasks: Found master task in IO_TASK queue, fd=%d, status=%d"),
+            temp->fd, temp->status);
+    }
+    temp = temp->next;
+    count++;
+  }
+  if (count > 0) {
+    Warnx(_("DEBUG scheduleTasks: IO_TASK queue has %d tasks"), count);
+  }
 
   for (i = NORMAL_TASK; i <= PERIODIC_TASK; i++) {
     for (j = HIGH_PRIORITY_TASK; j <= LOW_PRIORITY_TASK; j++) {
