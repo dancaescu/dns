@@ -232,6 +232,8 @@ extern taskexec_t	recursive_fwd_connecting(TASK *);
 extern taskexec_t	recursive_fwd_write(TASK *);
 extern taskexec_t	recursive_fwd_read(TASK *);
 
+/* dnscache-resolve.c - DNS cache forwarding for MySQL-free mode */
+extern taskexec_t	dnscache_fwd(TASK *);
 
 /* reply.c */
 extern int		reply_init(TASK *);

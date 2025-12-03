@@ -180,13 +180,19 @@ const char *
 conf_get(MYDNS_CONFIG **confp, const char *name, int *defaulted) {
   MYDNS_CONFIG *conf = *confp;							/* Start of list */
   register MYDNS_CONFIG *c;
+  size_t name_len;
 
   if (defaulted)
     *defaulted = 1;
 
+  if (!name)
+    return (NULL);
+
+  name_len = strlen(name);
+
   for (c = conf; c; c = c->next)
-    if (!memcmp(c->name, name, strlen(c->name))
-	|| (c->altname && !memcmp(c->altname, name, strlen(c->name)))) {
+    if ((c->name && strlen(c->name) == name_len && !memcmp(c->name, name, name_len))
+	|| (c->altname && strlen(c->altname) == name_len && !memcmp(c->altname, name, name_len))) {
       if (defaulted)
 	*defaulted = c->defaulted;
       return (c->value);
