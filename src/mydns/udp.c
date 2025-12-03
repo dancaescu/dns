@@ -219,11 +219,15 @@ void
 udp_start() {
   int		n = 0;
 
+  Warnx(_("DEBUG: udp_start() ENTRY - num_udp4_fd=%d"), num_udp4_fd);
   for (n = 0; n < num_udp4_fd; n++) {
+    Warnx(_("DEBUG: udp_start() creating UDP4 task for fd=%d"), udp4_fd[n]);
     TASK *udptask = IOtask_init(HIGH_PRIORITY_TASK, NEED_TASK_READ,
 				udp4_fd[n], SOCK_DGRAM, AF_INET, NULL);
     task_add_extension(udptask, NULL, NULL, udp_read_message, udp_tick);
+    Warnx(_("DEBUG: udp_start() UDP4 task created"));
   }
+  Warnx(_("DEBUG: udp_start() EXIT after creating %d UDP4 tasks"), num_udp4_fd);
 #if HAVE_IPV6
   for (n = 0; n < num_udp6_fd; n++) {
     TASK *udptask = IOtask_init(HIGH_PRIORITY_TASK, NEED_TASK_READ,

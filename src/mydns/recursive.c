@@ -419,26 +419,37 @@ __recursive_fwd_write_udp(TASK *t, void *data) {
   recursive_fwd_write_t	*querypacket = NULL;
   taskexec_t		res = TASK_FAILED;
 
+  Warnx(_("DEBUG __recursive_fwd_write_udp: ENTRY for %s"), desctask(t));
+
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
   DebugX("recursive", 1, _("%s: recursive_fwd_write() UDP"), desctask(t));
 #endif
 
   if (!udp_recursive_master) {
+    Warnx(_("DEBUG __recursive_fwd_write_udp: No udp_recursive_master!"));
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
     DebugX("recursive", 1, _("%s: recursive_fwd_write() UDP - no recursion master give up task"), desctask(t));
 #endif
     return dnserror(t, DNS_RCODE_SERVFAIL, ERR_FWD_RECURSIVE);
   }
 
+  Warnx(_("DEBUG __recursive_fwd_write_udp: udp_recursive_master status=%d, NEED_RECURSIVE_FWD_CONNECT=%d"),
+        udp_recursive_master->status, NEED_RECURSIVE_FWD_CONNECT);
+
   if (udp_recursive_master->status == NEED_RECURSIVE_FWD_CONNECT) {
+    Warnx(_("DEBUG __recursive_fwd_write_udp: Master still connecting, returning TASK_CONTINUE"));
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
     DebugX("recursive", 1, _("%s: recursive_fwd_write() UDP - still waiting for connect try again later"), desctask(t));
 #endif
     return TASK_CONTINUE;
   }
 
+  Warnx(_("DEBUG __recursive_fwd_write_udp: Calling __recursive_fwd_setup_query"));
   res = __recursive_fwd_setup_query(t, &querypacket);
+  Warnx(_("DEBUG __recursive_fwd_write_udp: __recursive_fwd_setup_query returned %d (TASK_COMPLETED=%d)"),
+        res, TASK_COMPLETED);
   if (res != TASK_COMPLETED) {
+    Warnx(_("DEBUG __recursive_fwd_write_udp: Query setup failed, returning %d"), res);
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
     DebugX("recursive", 1, _("%s: recursive_fwd_write() UDP - query setup failed"), desctask(t));
 #endif
@@ -447,11 +458,14 @@ __recursive_fwd_write_udp(TASK *t, void *data) {
 
   query = &querypacket->query[querypacket->querywritten];
   querylen = querypacket->querylength - querypacket->querywritten;
-  
+
   fd = recursive_udp_fd;
 
+  Warnx(_("DEBUG __recursive_fwd_write_udp: About to send %d bytes to fd=%d"), querylen, fd);
   rv = send(fd, query, querylen, MSG_DONTWAIT|MSG_EOR);
+  Warnx(_("DEBUG __recursive_fwd_write_udp: send() returned %d"), rv);
   if (rv < 0) {
+    Warnx(_("DEBUG __recursive_fwd_write_udp: send() failed with errno=%d (%s)"), errno, strerror(errno));
     if (
 	(errno == EINTR)
 #ifdef EAGAIN
@@ -985,6 +999,8 @@ static taskexec_t
 __recursive_fwd_udp(TASK *t) {
   QUEUE **connectQ = NULL;
 
+  Warnx(_("DEBUG: __recursive_fwd_udp() ENTRY for %s"), t->qname);
+
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
   DebugX("recursive", 1, _("%s: recursive_fwd() protocol = UDP"), desctask(t));
 #endif
@@ -1005,11 +1021,14 @@ __recursive_fwd_udp(TASK *t) {
     udp_recursive_master = IOtask_init(t->priority, NEED_RECURSIVE_FWD_CONNECT,
 				       recursive_udp_fd,
 				       SOCK_DGRAM, recursive_family, rsa);
+    Warnx(_("DEBUG: Created udp_recursive_master task, status=%d, fd=%d"),
+          udp_recursive_master->status, udp_recursive_master->fd);
+
     connectQ = ALLOCATE(sizeof(connectQ), QUEUE*);
     *connectQ = queue_init("recursive", "udp");
     task_add_extension(udp_recursive_master, connectQ, __recursive_fwd_read_free,
 		       __recursive_fwd_read_udp, __recursive_fwd_read_timeout);
-    
+
   }
 
   task_change_type(t, PERIODIC_TASK);
@@ -1030,6 +1049,7 @@ __recursive_fwd_udp(TASK *t) {
 
   udp_recursion_running++;
 
+  Warnx(_("DEBUG: __recursive_fwd_udp() EXIT returning TASK_EXECUTED for %s"), t->qname);
   return TASK_EXECUTED;
 }
 
@@ -1111,6 +1131,9 @@ __recursive_fwd_connect_udp(TASK *t) {
   socklen_t		rsalen = get_serveraddr(&rsa);
   int			fd = -1;
   QUEUE			**connectQ = NULL;
+
+  Warnx(_("DEBUG: __recursive_fwd_connect_udp() ENTRY for %s"), desctask(t));
+
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
   DebugX("recursive", 1, _("%s: recursive_fwd_connect() UDP"), desctask(t));
 #endif
@@ -1124,10 +1147,13 @@ __recursive_fwd_connect_udp(TASK *t) {
   }
 
   if ((rv = connect(fd, rsa, rsalen)) < 0) {
+    Warnx(_("DEBUG __recursive_fwd_connect_udp: connect() failed with errno=%d (%s)"), errno, strerror(errno));
     Warn("%s: %s %s", desctask(t), _("error connecting to recursive forwarder"),
 	 recursive_fwd_server);
     return dnserror(t, DNS_RCODE_SERVFAIL, ERR_FWD_RECURSIVE);
   }
+
+  Warnx(_("DEBUG __recursive_fwd_connect_udp: connect() SUCCESS"));
 
   t->status = NEED_RECURSIVE_FWD_READ;
   t->timeout = current_time + 120;
@@ -1135,21 +1161,44 @@ __recursive_fwd_connect_udp(TASK *t) {
   assert(t == udp_recursive_master);
 
   connectQ = (QUEUE**)(t->extension);
-  if (connectQ) {
-    while ((*connectQ)->head) {
-      TASK *queryt = (*connectQ)->head;
+  Warnx(_("DEBUG __recursive_fwd_connect_udp: About to restore queued tasks, connectQ=%p"), connectQ);
+  if (connectQ && *connectQ && (*connectQ)->head) {
+    Warnx(_("DEBUG __recursive_fwd_connect_udp: connectQ is not NULL, *connectQ=%p, head=%p"),
+          *connectQ, (*connectQ)->head);
+
+    /* Move all waiting tasks from connectQ back to TaskArray for processing */
+    /* Use safe iteration - get task, save next, then move */
+    TASK *queryt = (*connectQ)->head;
+    while (queryt) {
+      TASK *next_task = queryt->next;  /* Save next pointer BEFORE requeueing */
+
+      Warnx(_("DEBUG __recursive_fwd_connect_udp: Restoring task %s"), desctask(queryt));
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
       DebugX("recursive", 1, _("%s: recursive_fwd_connect() restoring task after connect"), desctask(queryt));
 #endif
+
       queryt->status = NEED_RECURSIVE_FWD_WRITE;
       queryt->timeout = current_time;
-      requeue(&TaskArray[queryt->type][queryt->priority], queryt);
+
+      Warnx(_("DEBUG __recursive_fwd_connect_udp: Task %s status=%d, calling requeue"),
+            desctask(queryt), queryt->status);
+
+      /* Requeue before changing type - requeue() needs current type to remove from correct queue */
+      requeue(&TaskArray[NORMAL_TASK][queryt->priority], queryt);
+      queryt->type = NORMAL_TASK;  /* Update type after requeue */
+
+      Warnx(_("DEBUG __recursive_fwd_connect_udp: Task %s requeued successfully"), desctask(queryt));
+
+      /* Move to next task using saved pointer */
+      queryt = next_task;
     }
+    Warnx(_("DEBUG __recursive_fwd_connect_udp: All tasks restored, releasing connectQ"));
     RELEASE(*connectQ);
     RELEASE(connectQ);
     t->extension = NULL;
   }
 
+  Warnx(_("DEBUG __recursive_fwd_connect_udp: Returning TASK_CONTINUE"));
   return TASK_CONTINUE;
 }
 
@@ -1197,12 +1246,16 @@ __recursive_fwd_connect_tcp(TASK *t) {
   if (connectQ) {
     while ((*connectQ)->head) {
       TASK *queryt = (*connectQ)->head;
+      taskexec_t write_res;
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
       DebugX("recursive", 1, _("%s: recursive_fwd_connect() restoring task after connect"), desctask(queryt));
 #endif
       queryt->status = NEED_RECURSIVE_FWD_WRITE;
       queryt->timeout = current_time;
-      requeue(&TaskArray[queryt->type][queryt->priority], queryt);
+
+      /* Dequeue from connectQ and immediately write the query to upstream DNS */
+      dequeue(queryt);
+      write_res = recursive_fwd_write(queryt);
     }
     RELEASE(*connectQ);
     RELEASE(connectQ);
@@ -1250,12 +1303,16 @@ __recursive_fwd_connecting_tcp(TASK *t) {
   if (connectQ) {
     while ((*connectQ)->head) {
       TASK *queryt = (*connectQ)->head;
+      taskexec_t write_res;
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
       DebugX("recursive", 1, _("%s: recursive_fwd_connect() restoring task after connect"), desctask(queryt));
 #endif
       queryt->status = NEED_RECURSIVE_FWD_WRITE;
       queryt->timeout = current_time;
-      requeue(&TaskArray[queryt->type][queryt->priority], queryt);
+
+      /* Dequeue from connectQ and immediately write the query to upstream DNS */
+      dequeue(queryt);
+      write_res = recursive_fwd_write(queryt);
     }
     RELEASE(*connectQ);
     RELEASE(connectQ);
@@ -1268,12 +1325,21 @@ __recursive_fwd_connecting_tcp(TASK *t) {
 taskexec_t
 recursive_fwd_connect(TASK *t) {
 
+  Warnx(_("DEBUG: recursive_fwd_connect() ENTRY, status=%d, protocol=%d, fd=%d"),
+        t->status, t->protocol, t->fd);
+
   switch (t->protocol) {
 
-  case SOCK_DGRAM:	return __recursive_fwd_connect_udp(t);
-  case SOCK_STREAM:	return __recursive_fwd_connect_tcp(t);
+  case SOCK_DGRAM:
+    Warnx(_("DEBUG: recursive_fwd_connect() SOCK_DGRAM case, calling __recursive_fwd_connect_udp()"));
+    return __recursive_fwd_connect_udp(t);
+  case SOCK_STREAM:
+    Warnx(_("DEBUG: recursive_fwd_connect() SOCK_STREAM case, calling __recursive_fwd_connect_tcp()"));
+    return __recursive_fwd_connect_tcp(t);
 
-  default:		return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
+  default:
+    Warnx(_("DEBUG: recursive_fwd_connect() DEFAULT case - unknown protocol %d"), t->protocol);
+    return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
 
   }
 }
@@ -1301,12 +1367,21 @@ recursive_fwd_connecting(TASK *t) {
 taskexec_t
 recursive_fwd_write(TASK *t) {
 
+  Warnx(_("DEBUG recursive_fwd_write: ENTRY for %s, protocol=%d, status=%d"),
+        desctask(t), t->protocol, t->status);
+
   switch (t->protocol) {
 
-  case SOCK_DGRAM:		return __recursive_fwd_write_udp(t, NULL);
-  case SOCK_STREAM:		return __recursive_fwd_write_tcp(t, NULL);
+  case SOCK_DGRAM:
+    Warnx(_("DEBUG recursive_fwd_write: SOCK_DGRAM case, calling __recursive_fwd_write_udp"));
+    return __recursive_fwd_write_udp(t, NULL);
+  case SOCK_STREAM:
+    Warnx(_("DEBUG recursive_fwd_write: SOCK_STREAM case, calling __recursive_fwd_write_tcp"));
+    return __recursive_fwd_write_tcp(t, NULL);
 
-  default:			return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
+  default:
+    Warnx(_("DEBUG recursive_fwd_write: DEFAULT case - unknown protocol %d"), t->protocol);
+    return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
 
   }
 }

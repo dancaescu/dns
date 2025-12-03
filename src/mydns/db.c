@@ -81,6 +81,8 @@ db_connect(void) {
         user ? user : "(NULL)", primary_host ? primary_host : "(NULL)", database ? database : "(NULL)");
 
   sql_open(user, password, primary_host, database);
+
+  Warnx(_("DEBUG: db_connect() EXIT after sql_open"));
 }
 /*--- db_connect() ------------------------------------------------------------------------------*/
 

@@ -86,8 +86,11 @@ resolve_soa(TASK *t, datasection_t section, char *fqdn, int level) {
 
   /* No SOA found - try recursive resolution if enabled */
   if (section == ANSWER && t->hdr.rd) {
+    Warnx(_("DEBUG resolve_soa: No SOA for %s, section=ANSWER, rd=%d, forward_recursive=%d, DnsCache=%p"),
+          fqdn, t->hdr.rd, forward_recursive, DnsCache);
     /* Traditional recursive forwarding (master servers with 'recursive' config) */
     if (forward_recursive) {
+      Warnx(_("DEBUG resolve_soa: Calling recursive_fwd() for %s"), fqdn);
 #if DEBUG_ENABLED && DEBUG_RESOLVE
       DebugX("resolve", 1, _("%s: No SOA found for %s, trying recursive_fwd"), desctask(t), fqdn);
 #endif
@@ -95,6 +98,7 @@ resolve_soa(TASK *t, datasection_t section, char *fqdn, int level) {
     }
     /* DNS cache forwarding (MySQL-free slave servers with 'dns-cache-enabled') */
     else if (DnsCache) {
+      Warnx(_("DEBUG resolve_soa: Calling dnscache_fwd() for %s"), fqdn);
 #if DEBUG_ENABLED && DEBUG_RESOLVE
       DebugX("resolve", 1, _("%s: No SOA found for %s, trying DNS cache"), desctask(t), fqdn);
 #endif
@@ -102,6 +106,8 @@ resolve_soa(TASK *t, datasection_t section, char *fqdn, int level) {
     }
   }
 
+  Warnx(_("DEBUG resolve_soa: Returning REFUSED for %s (section=%d, rd=%d, forward_recursive=%d)"),
+        fqdn, section, t->hdr.rd, forward_recursive);
   return (section == ANSWER ? dnserror(t, DNS_RCODE_REFUSED, ERR_ZONE_NOT_FOUND) : TASK_EXECUTED);
 }
 /*--- resolve_soa() -----------------------------------------------------------------------------*/
@@ -514,9 +520,23 @@ resolve(TASK *t, datasection_t section, dns_qtype_t qtype, char *fqdn, int level
   DebugX("resolve", 1, _("%s: resolve(%s) -> soa %s"), desctask(t), fqdn, (soa)?soa->origin:_("not found"));
 #endif
 
+  Warnx(_("DEBUG resolve: fqdn=%s, soa=%p, section=%d, level=%d, t->hdr.rd=%d"),
+        fqdn, soa, section, level, t->hdr.rd);
+  if (soa) {
+    Warnx(_("DEBUG resolve: soa->origin=%s, soa->recursive=%d"), soa->origin, soa->recursive);
+  }
+
   if (!soa || soa->recursive) {
+    Warnx(_("DEBUG resolve: entering recursive block (!soa=%d || soa->recursive=%d)"),
+          !soa, soa ? soa->recursive : 0);
     RELEASE(name);
     if ((section == ANSWER) && !level) {
+      Warnx(_("DEBUG resolve: section==ANSWER && !level, checking recursive options"));
+      Warnx(_("DEBUG resolve: DnsCache=%p, forward_recursive=%d, t->hdr.rd=%d"),
+            DnsCache, forward_recursive, t->hdr.rd);
+      if (DnsCache) {
+        Warnx(_("DEBUG resolve: DnsCache->config.enabled=%d"), DnsCache->config.enabled);
+      }
 #if DEBUG_ENABLED && DEBUG_RESOLVE
       DebugX("resolve", 1, _("%s: Checking for recursion soa = %p, soa->recursive = %d, "
 			     "forward_recursive = %d, t->hdr.rd = %d, section = %d, level = %d"),
@@ -526,11 +546,14 @@ resolve(TASK *t, datasection_t section, dns_qtype_t qtype, char *fqdn, int level
 #endif
       /* Try DNS cache first if enabled */
       if (DnsCache && DnsCache->config.enabled && t->hdr.rd) {
+        Warnx(_("DEBUG resolve: about to call dnscache_resolve() for %s"), fqdn);
         cache_record_t *records[100];
         const char *client_ip = clientaddr(t);
         int cache_result = dnscache_resolve(DnsCache, Memzone, fqdn, qtype,
                                           client_ip, NULL, 0,
                                           records, 100);
+
+        Warnx(_("DEBUG resolve: dnscache_resolve() returned %d for %s"), cache_result, fqdn);
 
         if (cache_result > 0) {
           /* Cache hit - add records to response */
@@ -572,17 +595,23 @@ resolve(TASK *t, datasection_t section, dns_qtype_t qtype, char *fqdn, int level
           t->hdr.ra = 1;  /* Recursion available */
           return TASK_EXECUTED;
         } else {
-          /* Upstream query failed (cache_result == -1) */
+          /* Upstream query failed (cache_result == -1) - fall back to traditional recursive */
 #if DEBUG_ENABLED && DEBUG_RESOLVE
-          DebugX("resolve", 1, _("%s: DNS cache upstream query failed for %s"),
+          DebugX("resolve", 1, _("%s: DNS cache upstream query failed for %s, trying traditional recursive"),
                  desctask(t), fqdn);
 #endif
+          /* Fall back to traditional recursive forwarding if available */
+          if (forward_recursive && t->hdr.rd) {
+            Warnx(_("DEBUG: Falling back to recursive_fwd() for %s after DNS cache failure"), fqdn);
+            return recursive_fwd(t);
+          }
           return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
         }
       }
 
-      /* Only use traditional recursive forwarding if DNS cache is not available */
-      if (forward_recursive && t->hdr.rd && (!DnsCache || !DnsCache->config.enabled)) {
+      /* Use traditional recursive forwarding if DNS cache is not enabled */
+      if (forward_recursive && t->hdr.rd) {
+        Warnx(_("DEBUG: Using recursive_fwd() for %s (DNS cache not enabled)"), fqdn);
 	return recursive_fwd(t);
       }
       return dnserror(t, DNS_RCODE_REFUSED, ERR_ZONE_NOT_FOUND);

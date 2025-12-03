@@ -504,10 +504,16 @@ _task_init(
 
   TaskQ = &(TaskArray[type][priority]);
 
+  Warnx(_("DEBUG _task_init: About to enqueue task, type=%d, priority=%d, status=%d, fd=%d"),
+        type, priority, status, fd);
+
   if (enqueue(TaskQ, new) < 0) {
+    Warnx(_("DEBUG _task_init: enqueue() FAILED!"));
     task_free(new);
     return (NULL);
   }
+
+  Warnx(_("DEBUG _task_init: enqueue() SUCCESS, task added to TaskArray[%d][%d]"), type, priority);
 
   return (new);
 }
@@ -736,6 +742,8 @@ static taskexec_t
 task_process_query(TASK *t, int rfd, int wfd, int efd) {
   taskexec_t	res = TASK_DID_NOT_EXECUTE;
 
+  Warnx(_("DEBUG: task_process_query(%s) status=%d qname=%s rfd=%d"), desctask(t), t->status, t->qname, rfd);
+
 #if DEBUG_ENABLED && DEBUG_TASK
   DebugX("task", 1, _("%s: task_process_query called rfd = %d, wfd = %d, efd = %d"), desctask(t), rfd, wfd, efd);
 #endif
@@ -822,15 +830,22 @@ task_process_query(TASK *t, int rfd, int wfd, int efd) {
       /*
       **  NEED_ANSWER: Need to resolve query
       */
+      Warnx(_("DEBUG: NEED_ANSWER case for %s qtype=%d"), t->qname, t->qtype);
       if (reply_cache_find(t)) {
+	Warnx(_("DEBUG: found cached reply for %s"), t->qname);
 	char *dest = t->reply;
 	DNS_PUT16(dest, t->id);						/* Query ID */
 	DNS_PUT(dest, &t->hdr, SIZE16);					/* Header */
       } else {
+	Warnx(_("DEBUG: calling resolve() for %s"), t->qname);
 	resolve(t, ANSWER, t->qtype, t->qname, 0);
+	Warnx(_("DEBUG: after resolve() for %s, status=%d, TaskIsRecursive=%d"),
+	      t->qname, t->status, TaskIsRecursive(t->status & Needs2Recurse));
 	if (TaskIsRecursive(t->status & Needs2Recurse)) {
+	  Warnx(_("DEBUG: Task %s is recursive, returning TASK_CONTINUE"), t->qname);
 	  return TASK_CONTINUE;
 	} else {
+	  Warnx(_("DEBUG: Task %s is NOT recursive, building reply"), t->qname);
 	  build_reply(t, 1);
 	  if (t->reply_cache_ok)
 	    add_reply_to_cache(t);
@@ -910,6 +925,8 @@ static taskexec_t
 task_process_recursive(TASK *t, int rfd, int wfd, int efd) {
   taskexec_t	res = TASK_DID_NOT_EXECUTE;
 
+  Warnx(_("DEBUG: task_process_recursive() for %s status=%d"), t->qname, t->status);
+
 #if DEBUG_ENABLED && DEBUG_TASK
   DebugX("task", 1, _("%s: task_process_recursive called rfd = %d, wfd = %d, efd = %d"),
 	 desctask(t), rfd, wfd, efd);
@@ -918,14 +935,17 @@ task_process_recursive(TASK *t, int rfd, int wfd, int efd) {
   switch (TASKIOTYPE(t->status)) {
 
   case Needs2Connect:
-	
+	Warnx(_("DEBUG task_process_recursive: Needs2Connect case, status=%d"), t->status);
     switch(t->status) {
 
     case NEED_RECURSIVE_FWD_CONNECT:
       /*
       **  NEED_RECURSIVE_FWD_CONNECT: Need to connnect to recursive forwarder
       */
+      Warnx(_("DEBUG task_process_recursive: NEED_RECURSIVE_FWD_CONNECT case matched!"));
+      Warnx(_("DEBUG task_process_recursive: About to call recursive_fwd_connect()"));
       res = recursive_fwd_connect(t);
+      Warnx(_("DEBUG task_process_recursive: recursive_fwd_connect() returned %d"), res);
       if (res == TASK_FAILED) return TASK_FAILED;
       if (res != TASK_CONTINUE) {
 	Warnx("%s: %d: %s", desctask(t), (int)res, _("unexpected result from recursive_fwd_connect"));
@@ -934,6 +954,8 @@ task_process_recursive(TASK *t, int rfd, int wfd, int efd) {
       return TASK_CONTINUE;
 
     default:
+      Warnx(_("DEBUG task_process_recursive: DEFAULT case in Needs2Connect! status=%d (NEED_RECURSIVE_FWD_CONNECT=%d)"),
+            t->status, NEED_RECURSIVE_FWD_CONNECT);
       Warnx("%s: %d %s", desctask(t), t->status, _("unrecognised task status"));
       return TASK_FAILED;
     }
@@ -1169,19 +1191,31 @@ task_process(TASK *t, int rfd, int wfd, int efd) {
 #if DEBUG_ENABLED && DEBUG_TASK
   DebugX("task", 1, _("%s: task_process called rfd = %d, wfd = %d, efd = %d"), desctask(t), rfd, wfd, efd);
 #endif
+
+  /* Debug: Log task_process entry for recursive tasks */
+  if (TaskIsRecursive(t->status)) {
+    Warnx(_("DEBUG task_process: ENTRY for recursive task, status=%d, TASKCLASS=%d, TaskIsRecursive=%d"),
+          t->status, TASKCLASS(t->status), TaskIsRecursive(t->status));
+  }
+
   switch (TASKCLASS(t->status)) {
 
   case QueryTask:
+
+    Warnx(_("DEBUG task_process: QueryTask case matched, TaskIsRecursive=%d, Needs2Recurse=%d"),
+          TaskIsRecursive(t->status), Needs2Recurse);
 
     switch (TaskIsRecursive(t->status)) {
 
     default: /* Not a recursive query */
 
+      Warnx(_("DEBUG task_process: DEFAULT case - calling task_process_query"));
       res = task_process_query(t, rfd, wfd, efd);
       break;
 
     case Needs2Recurse:
 
+      Warnx(_("DEBUG task_process: Needs2Recurse case matched - calling task_process_recursive"));
       res = task_process_recursive(t, rfd, wfd, efd);
       break;
 

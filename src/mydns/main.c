@@ -1032,12 +1032,35 @@ run_tasks(struct pollfd items[], int numfds) {
   int rfd = 0, wfd = 0, efd = 0, fd;
   struct pollfd *item = NULL;
 
+  /* Debug: Log all tasks in IO_TASK HIGH_PRIORITY queue */
+  {
+    QUEUE *ioTaskQ = TaskArray[IO_TASK][HIGH_PRIORITY_TASK];
+    TASK *temp = ioTaskQ->head;
+    int count = 0;
+    Warnx(_("DEBUG run_tasks: Checking IO_TASK queue, head=%p"), ioTaskQ->head);
+    while (temp) {
+      count++;
+      Warnx(_("DEBUG run_tasks: IO task #%d: status=%d, fd=%d, IsRecursive=%d, qname=%s"),
+            count, temp->status, temp->fd, TaskIsRecursive(temp->status),
+            temp->qname ? temp->qname : "(null)");
+      temp = temp->next;
+    }
+    Warnx(_("DEBUG run_tasks: Total IO tasks: %d"), count);
+  }
+
   /* Process tasks */
   for (j = HIGH_PRIORITY_TASK; j <= LOW_PRIORITY_TASK; j++) {
     for (i = NORMAL_TASK; i <= PERIODIC_TASK; i++) {
       QUEUE *TaskQ = TaskArray[i][j];
       for (t = TaskQ->head; t; t = next_task) {
 	next_task = t->next;
+
+	/* Debug: Log recursive tasks */
+	if (TaskIsRecursive(t->status)) {
+	  Warnx(_("DEBUG run_tasks: Found recursive task %s, type=%d, status=%d, fd=%d"),
+	        t->qname, t->type, t->status, t->fd);
+	}
+
 	rfd = 0; wfd = 0; efd = 0;
 	fd = t->fd;
 	if (fd >= 0) {
@@ -1064,6 +1087,18 @@ run_tasks(struct pollfd items[], int numfds) {
 	    purge_bad_task(t);
 	    continue;
 	  } else {
+	    /* Debug: Log if recursive tasks are being skipped */
+	    if (TaskIsRecursive(t->status)) {
+	      if ((t->status & Needs2Read) && !rfd) {
+	        Warnx(_("DEBUG run_tasks: SKIPPING recursive task %s - needs read but no rfd"), t->qname);
+	        continue;
+	      }
+	      if ((t->status & Needs2Write) && !wfd) {
+	        Warnx(_("DEBUG run_tasks: SKIPPING recursive task %s - needs write but no wfd (item=%p)"),
+	              t->qname, item);
+	        continue;
+	      }
+	    }
 	    if ((t->status & Needs2Read) && !rfd) continue;
 	    if ((t->status & Needs2Write) && !wfd) continue;
 	  }
@@ -1073,6 +1108,12 @@ run_tasks(struct pollfd items[], int numfds) {
 	  }
 #endif
 	}
+
+	/* Debug: Log before calling task_process for recursive tasks */
+	if (TaskIsRecursive(t->status)) {
+	  Warnx(_("DEBUG run_tasks: About to call task_process() for recursive task %s"), t->qname);
+	}
+
 	tasks_executed += task_process(t, rfd, wfd, efd);
 	if (shutting_down) break;
       }
@@ -1162,23 +1203,35 @@ server_loop(INITIALTASK *initial_tasks, int serverfd) {
   struct pollfd	*items = NULL;
   int maxnumfds = 0;
 
+  Warnx(_("DEBUG: server_loop() ENTRY"));
   do_initial_tasks(initial_tasks);
+  Warnx(_("DEBUG: server_loop() after do_initial_tasks()"));
 
+  Warnx(_("DEBUG: server_loop() about to call udp_start()"));
   udp_start();
+  Warnx(_("DEBUG: server_loop() after udp_start(), about to call tcp_start()"));
   tcp_start();
+  Warnx(_("DEBUG: server_loop() after tcp_start()"));
 
   if (serverfd >= 0) {
     fcntl(serverfd, F_SETFL, fcntl(serverfd, F_GETFL, 0) | O_NONBLOCK);
     scomms_start(serverfd);
   }
 
+  Warnx(_("DEBUG: server_loop() about to enter main event loop"));
+
   /* Main loop: Read connections and process queue */
+  static int loop_count = 0;
   for (;;) {
     int			numfds = 0;
     int			rv = 0;
     int			timeoutWanted = -1;
     struct timeval	tv = { 0, 0 };
     struct timeval	*tvp = NULL;
+
+    if (++loop_count <= 5) {
+      Warnx(_("DEBUG: server_loop() iteration %d"), loop_count);
+    }
 
     /* Handle signals */
     if (got_sighup) sighup(SIGHUP);
@@ -1394,8 +1447,10 @@ spawn_server(INITIALTASK *initial_tasks) {
   sql_close(sql); /* Release the database connection held by the master */
 
   db_connect();
+  Warnx(_("DEBUG: WORKER about to call server_loop()"));
 
   server_loop(initial_tasks, serverfd);
+  Warnx(_("DEBUG: WORKER returned from server_loop() - this should never happen"));
 
   exit(EXIT_SUCCESS);
 
@@ -1620,7 +1675,9 @@ main(int argc, char **argv)
   conf_set_logging();
   Warnx(_("DEBUG: main() about to call db_connect()"));
   db_connect();
+  Warnx(_("DEBUG: main() after db_connect()"));
   create_pidfile();					/* Create PID file */
+  Warnx(_("DEBUG: main() after create_pidfile()"));
 
   /* Initialize GeoIP */
   Warnx(_("DEBUG: main() about to call geoip_init()"));
