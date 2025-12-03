@@ -431,36 +431,49 @@ check_config_file_perms(void) {
 static void
 conf_set_recursive(void) {
   char		*c, *token, *saveptr;
-  const char	*address = conf_get(&Conf, "recursive", NULL);
+  const char	*address;
   char		addr_copy[2048];
   char		addr[512];
   int		port = 53;
   int		count = 0, i = 0;
 
+  Warnx("DEBUG: conf_set_recursive() ENTRY");
+
+  address = conf_get(&Conf, "recursive", NULL);
+  Warnx("DEBUG: conf_get returned address=%p", address);
+
   /* MySQL-free mode: DNS cache doesn't need forward_recursive flag */
   /* It handles queries directly in resolve.c via dnscache_resolve() */
   if ((!address || !address[0])) {
+    Warnx("DEBUG: conf_set_recursive() EXIT (no address)");
     return;
   }
+
+  Warnx("DEBUG: recursive address='%s'", address);
 
   /* Count comma-separated servers */
   strncpy(addr_copy, address, sizeof(addr_copy)-1);
   addr_copy[sizeof(addr_copy)-1] = '\0';
 
+  Warnx("DEBUG: about to count tokens");
   token = strtok_r(addr_copy, ",", &saveptr);
   while (token) {
     count++;
+    Warnx("DEBUG: counted token %d: '%s'", count, token);
     token = strtok_r(NULL, ",", &saveptr);
   }
 
+  Warnx("DEBUG: total count=%d", count);
   if (count == 0) return;
 
   /* Allocate array of servers */
+  Warnx("DEBUG: about to calloc %d servers, sizeof=%zu", count, sizeof(recursive_server_t));
   recursive_servers = (recursive_server_t*)calloc(count, sizeof(recursive_server_t));
   if (!recursive_servers) {
     Err(_("conf_set_recursive: failed to allocate memory for recursive servers"));
     return;
   }
+  Warnx("DEBUG: calloc successful, recursive_servers=%p", recursive_servers);
   recursive_server_count = count;
   recursive_server_current = 0;
 
@@ -468,10 +481,13 @@ conf_set_recursive(void) {
   strncpy(addr_copy, address, sizeof(addr_copy)-1);
   addr_copy[sizeof(addr_copy)-1] = '\0';
 
+  Warnx("DEBUG: about to parse servers");
   token = strtok_r(addr_copy, ",", &saveptr);
   i = 0;
 
   while (token && i < count) {
+    Warnx("DEBUG: parsing server %d, token='%s'", i, token);
+
     /* Trim whitespace */
     while (*token == ' ' || *token == '\t') token++;
 
@@ -479,26 +495,35 @@ conf_set_recursive(void) {
     addr[sizeof(addr)-1] = '\0';
     port = 53;
 
+    Warnx("DEBUG: addr='%s', about to check is_ipv6", addr);
+
 #if HAVE_IPV6
     if (is_ipv6(addr)) {		/* IPv6 - treat '+' as port separator */
+      Warnx("DEBUG: is IPv6");
+
       if ((c = strchr(addr, '+'))) {
         *c++ = '\0';
         if (!(port = atoi(c)))
           port = 53;
       }
+      Warnx("DEBUG: about to inet_pton IPv6, addr='%s'", addr);
       if (inet_pton(AF_INET6, addr, &recursive_servers[i].addr.sa6.sin6_addr) <= 0) {
         Warnx("%s: %s", addr, _("invalid IPv6 address for recursive server"));
         token = strtok_r(NULL, ",", &saveptr);
         continue;
       }
+      Warnx("DEBUG: inet_pton IPv6 success, about to set fields");
       recursive_servers[i].family = AF_INET6;
       recursive_servers[i].addr.sa6.sin6_family = AF_INET6;
       recursive_servers[i].addr.sa6.sin6_port = htons(port);
+      Warnx("DEBUG: about to STRDUP token='%s'", token);
       recursive_servers[i].address = STRDUP(token);
+      Warnx("DEBUG: STRDUP success, setting health fields");
       recursive_servers[i].is_healthy = 1;
       recursive_servers[i].consecutive_failures = 0;
       recursive_servers[i].last_success = time(NULL);
       recursive_servers[i].last_failure = 0;
+      Warnx("DEBUG: IPv6 server %d added successfully", i);
 
 #if DEBUG_ENABLED && DEBUG_CONF
       DebugX("conf", 1,_("added recursive server [%d]: %s:%u (IPv6)"), i,
@@ -506,24 +531,30 @@ conf_set_recursive(void) {
 #endif
     } else {			/* IPv4 - treat '+' or ':' as port separator  */
 #endif
+      Warnx("DEBUG: is IPv4");
       if ((c = strchr(addr, '+')) || (c = strchr(addr, ':'))) {
         *c++ = '\0';
         if (!(port = atoi(c)))
           port = 53;
       }
+      Warnx("DEBUG: about to inet_pton IPv4, addr='%s'", addr);
       if (inet_pton(AF_INET, addr, &recursive_servers[i].addr.sa4.sin_addr) <= 0) {
         Warnx("%s: %s", addr, _("invalid IPv4 address for recursive server"));
         token = strtok_r(NULL, ",", &saveptr);
         continue;
       }
+      Warnx("DEBUG: inet_pton IPv4 success, about to set fields");
       recursive_servers[i].family = AF_INET;
       recursive_servers[i].addr.sa4.sin_family = AF_INET;
       recursive_servers[i].addr.sa4.sin_port = htons(port);
+      Warnx("DEBUG: about to STRDUP token='%s'", token);
       recursive_servers[i].address = STRDUP(token);
+      Warnx("DEBUG: STRDUP success, setting health fields");
       recursive_servers[i].is_healthy = 1;
       recursive_servers[i].consecutive_failures = 0;
       recursive_servers[i].last_success = time(NULL);
       recursive_servers[i].last_failure = 0;
+      Warnx("DEBUG: IPv4 server %d added successfully", i);
 
 #if DEBUG_ENABLED && DEBUG_CONF
       DebugX("conf", 1,_("added recursive server [%d]: %s:%u (IPv4)"), i,
@@ -533,9 +564,12 @@ conf_set_recursive(void) {
     }
 #endif
 
+    Warnx("DEBUG: incrementing i and getting next token");
     i++;
     token = strtok_r(NULL, ",", &saveptr);
   }
+
+  Warnx("DEBUG: conf_set_recursive() EXIT successfully");
 
   /* Update actual count in case some servers failed to parse */
   recursive_server_count = i;
@@ -558,12 +592,24 @@ conf_set_recursive(void) {
            recursive_server_count);
   }
 
-  if (!forward_recursive) return;
+  Warnx("DEBUG: forward_recursive=%d", forward_recursive);
+  if (!forward_recursive) {
+    Warnx("DEBUG: conf_set_recursive() returning early (forward_recursive=0)");
+    return;
+  }
 
-  recursion_timeout = atou(conf_get(&Conf, "recursive-timeout", NULL));
-  recursion_connect_timeout = atou(conf_get(&Conf, "recursive-connect-timeout", NULL));
-  recursion_retries = atou(conf_get(&Conf, "recursive-retries", NULL));
+  Warnx("DEBUG: about to get recursive config values");
+  const char *timeout_val = conf_get(&Conf, "recursive-timeout", NULL);
+  const char *connect_timeout_val = conf_get(&Conf, "recursive-connect-timeout", NULL);
+  const char *retries_val = conf_get(&Conf, "recursive-retries", NULL);
+
+  recursion_timeout = timeout_val ? atou(timeout_val) : 5;
+  recursion_connect_timeout = connect_timeout_val ? atou(connect_timeout_val) : 2;
+  recursion_retries = retries_val ? atou(retries_val) : 3;
   recursion_algorithm = conf_get(&Conf, "recursive-algorithm", NULL);
+
+  Warnx("DEBUG: conf_set_recursive() returning normally (timeout=%u, connect_timeout=%u, retries=%u)",
+        recursion_timeout, recursion_connect_timeout, recursion_retries);
 
 }
 /*--- conf_set_recursive() ----------------------------------------------------------------------*/

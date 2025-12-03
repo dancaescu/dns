@@ -77,6 +77,9 @@ db_connect(void) {
   if (!primary_host)
     primary_host = host_values[0];
 
+  Warnx(_("DEBUG: db_connect() about to call sql_open - user=%s host=%s db=%s"),
+        user ? user : "(NULL)", primary_host ? primary_host : "(NULL)", database ? database : "(NULL)");
+
   sql_open(user, password, primary_host, database);
 }
 /*--- db_connect() ------------------------------------------------------------------------------*/
