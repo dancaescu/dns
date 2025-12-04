@@ -606,7 +606,12 @@ conf_set_recursive(void) {
   recursion_timeout = timeout_val ? atou(timeout_val) : 5;
   recursion_connect_timeout = connect_timeout_val ? atou(connect_timeout_val) : 2;
   recursion_retries = retries_val ? atou(retries_val) : 3;
-  recursion_algorithm = conf_get(&Conf, "recursive-algorithm", NULL);
+
+  const char *algo_val = conf_get(&Conf, "recursive-algorithm", NULL);
+  if (algo_val) {
+    recursion_algorithm = algo_val;
+  }
+  /* else keep the default "linear" value set at initialization */
 
   Warnx("DEBUG: conf_set_recursive() returning normally (timeout=%u, connect_timeout=%u, retries=%u)",
         recursion_timeout, recursion_connect_timeout, recursion_retries);

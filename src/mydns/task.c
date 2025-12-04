@@ -521,7 +521,53 @@ _task_init(
 
 void
 _task_change_type(TASK *t, tasktype_t type, taskpriority_t priority) {
-  requeue(&TaskArray[type][priority], t);
+  QUEUE **old_q = t->TaskQ;
+  QUEUE **new_q = &TaskArray[type][priority];
+
+  /* If moving to the same queue, use requeue() */
+  if (old_q == new_q) {
+    requeue(new_q, t);
+    t->type = type;
+    t->priority = priority;
+    return;
+  }
+
+  /* Moving to a different queue - need to manually remove and add */
+  /* Remove from old queue (without freeing) */
+  if (old_q && *old_q) {
+    if (t == (*old_q)->head) {
+      (*old_q)->head = t->next;
+      if ((*old_q)->head == NULL) {
+        (*old_q)->tail = NULL;
+      } else {
+        if (t->next) t->next->prev = NULL;
+      }
+    } else {
+      if (t->prev) t->prev->next = t->next;
+      if (t->next == NULL) {
+        (*old_q)->tail = t->prev;
+      } else {
+        t->next->prev = t->prev;
+      }
+    }
+    (*old_q)->size--;
+  }
+
+  /* Add to new queue */
+  t->next = t->prev = NULL;
+
+  if ((*new_q)->head) {
+    (*new_q)->tail->next = t;
+    t->prev = (*new_q)->tail;
+  } else {
+    (*new_q)->head = t;
+  }
+  (*new_q)->tail = t;
+  (*new_q)->size++;
+
+  if ((*new_q)->max_size < (*new_q)->size) (*new_q)->max_size = (*new_q)->size;
+
+  t->TaskQ = new_q;
   t->type = type;
   t->priority = priority;
 }
@@ -585,15 +631,24 @@ void
 task_add_extension(TASK *t, void *extension, FreeExtension freeextension, RunExtension runextension,
 		   TimeExtension timeextension)
 {
+  Warnx(_("DEBUG task_add_extension: ENTRY, t=%p, extension=%p"), (void*)t, extension);
+
   if (t->extension && t->freeextension) {
+    Warnx(_("DEBUG task_add_extension: About to free existing extension"));
     t->freeextension(t, t->extension);
+    Warnx(_("DEBUG task_add_extension: Freed existing extension"));
   }
+
+  Warnx(_("DEBUG task_add_extension: About to RELEASE t->extension"));
   RELEASE(t->extension);
+  Warnx(_("DEBUG task_add_extension: RELEASE completed"));
 
   t->extension = extension;
   t->freeextension = freeextension;
   t->runextension = runextension;
   t->timeextension = timeextension;
+
+  Warnx(_("DEBUG task_add_extension: Successfully set all extension fields"));
 }
 
 void
@@ -1007,7 +1062,14 @@ task_process_recursive(TASK *t, int rfd, int wfd, int efd) {
     switch (t->status) {
 
     case NEED_RECURSIVE_FWD_CONNECTED:
-      return TASK_CONTINUE;
+      /* Re-check if master is ready for this waiting query */
+      Warnx("DEBUG task_process: NEED_RECURSIVE_FWD_CONNECTED, calling recursive_fwd() for %s", desctask(t));
+      res = recursive_fwd(t);
+      if (res == TASK_FAILED) return TASK_FAILED;
+      if (res == TASK_CONTINUE) return TASK_CONTINUE;
+      if (res == TASK_EXECUTED) return TASK_EXECUTED;
+      Warnx("%s: %d: %s", desctask(t), (int)res, _("unexpected result from recursive_fwd"));
+      return TASK_FAILED;
 
     case NEED_RECURSIVE_FWD_WRITE:
       /*

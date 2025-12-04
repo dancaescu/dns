@@ -495,9 +495,13 @@ __recursive_fwd_write_udp(TASK *t, void *data) {
 #endif
     return TASK_CONTINUE;
   } else {
+    Warnx(_("DEBUG __recursive_fwd_write_udp: About to set status to NEED_RECURSIVE_FWD_RETRY"));
     t->status = NEED_RECURSIVE_FWD_RETRY;
+    Warnx(_("DEBUG __recursive_fwd_write_udp: About to set timeout"));
     t->timeout = current_time + _recursive_timeout(t, querypacket);
+    Warnx(_("DEBUG __recursive_fwd_write_udp: About to set querywritten=0"));
     querypacket->querywritten = 0;
+    Warnx(_("DEBUG __recursive_fwd_write_udp: About to return TASK_CONTINUE"));
 #if DEBUG_ENABLED && DEBUG_RECURSIVE
     DebugX("recursive", 1, _("%s: recursive_fwd_write() UDP - sent full packet retry if no reply by timeout"), desctask(t));
 #endif
@@ -1018,15 +1022,31 @@ __recursive_fwd_udp(TASK *t) {
 
     (void)get_serveraddr(&rsa);
 
+    Warnx(_("DEBUG: About to call IOtask_init() for master"));
     udp_recursive_master = IOtask_init(t->priority, NEED_RECURSIVE_FWD_CONNECT,
 				       recursive_udp_fd,
 				       SOCK_DGRAM, recursive_family, rsa);
+    Warnx(_("DEBUG: IOtask_init() returned, master=%p"), (void*)udp_recursive_master);
+
+    if (!udp_recursive_master) {
+      Warnx(_("ERROR: IOtask_init() returned NULL!"));
+      return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
+    }
+
     Warnx(_("DEBUG: Created udp_recursive_master task, status=%d, fd=%d"),
           udp_recursive_master->status, udp_recursive_master->fd);
 
     /* No connectQ - tasks stay in TaskArray */
+    Warnx(_("DEBUG: About to call task_add_extension()"));
     task_add_extension(udp_recursive_master, NULL, __recursive_fwd_read_free,
 		       __recursive_fwd_read_udp, __recursive_fwd_read_timeout);
+    Warnx(_("DEBUG: task_add_extension() completed"));
+
+    /* Immediately initiate the connection */
+    Warnx(_("DEBUG: Calling recursive_fwd_connect() to initiate master connection"));
+    taskexec_t conn_result = recursive_fwd_connect(udp_recursive_master);
+    Warnx(_("DEBUG: recursive_fwd_connect() returned %d, master status now %d"),
+          conn_result, udp_recursive_master->status);
   }
 
   /* Keep task as PERIODIC so it gets checked regularly */
@@ -1162,7 +1182,11 @@ __recursive_fwd_connect_udp(TASK *t) {
   t->status = NEED_RECURSIVE_FWD_READ;
   t->timeout = current_time + 120;
 
-  assert(t == udp_recursive_master);
+  /* Verify this is the UDP master task */
+  if (t != udp_recursive_master) {
+    Warnx(_("WARNING: __recursive_fwd_connect_udp() called with task %p but udp_recursive_master is %p"),
+          (void*)t, (void*)udp_recursive_master);
+  }
 
   /* No need to restore tasks - they're already in TaskArray as PERIODIC_TASK */
   /* They'll automatically check master status on their next iteration */
