@@ -394,13 +394,12 @@ add_rrsig_for_rrset(TASK *t, datasection_t section, const char *rrset_name,
         rr->ttl = 3600; /* TODO: Use actual TTL from config */
         rr->aux = 0;
 
-        /* Set name */
-        rr->_name = (char *)malloc(strlen(rrset_name) + 1);
+        /* Set name - using strdup() for safe string duplication (CWE-120 fix) */
+        rr->_name = strdup(rrset_name);
         if (!rr->_name) {
             free(rr);
             continue;
         }
-        strcpy(rr->_name, rrset_name);
 
         /* Set RDATA */
         rr->_data.len = rdlen;
@@ -481,13 +480,12 @@ add_dnskey_records(TASK *t, datasection_t section, uint32_t zone_id, const char 
         rr->ttl = 3600;
         rr->aux = 0;
 
-        /* Set name */
-        rr->_name = (char *)malloc(strlen(zone_name) + 1);
+        /* Set name - using strdup() for safe string duplication (CWE-120 fix) */
+        rr->_name = strdup(zone_name);
         if (!rr->_name) {
             free(rr);
             continue;
         }
-        strcpy(rr->_name, zone_name);
 
         /* Set RDATA */
         rr->_data.len = rdlen;
@@ -578,13 +576,12 @@ add_nsec3_for_nxdomain(TASK *t, uint32_t zone_id, const char *zone_name, const c
         rr->ttl = 3600;
         rr->aux = 0;
 
-        /* Set name */
-        rr->_name = (char *)malloc(strlen(nsec3_name) + 1);
+        /* Set name - using strdup() for safe string duplication (CWE-120 fix) */
+        rr->_name = strdup(nsec3_name);
         if (!rr->_name) {
             free(rr);
             continue;
         }
-        strcpy(rr->_name, nsec3_name);
 
         /* Set RDATA */
         rr->_data.len = rdlen;

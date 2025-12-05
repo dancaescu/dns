@@ -48,8 +48,13 @@ resolve_soa(TASK *t, datasection_t section, char *fqdn, int level) {
        then if section is ANSWER and we are in level 0 */
     if(soa->recursive) {
       if(forward_recursive && t->hdr.rd)
-	if((section == ANSWER) && !level)
+	if((section == ANSWER) && !level) {
+	  /* Force UDP for upstream forwarding regardless of client protocol */
+	  int original_protocol = t->protocol;
+	  t->protocol = SOCK_DGRAM;
+	  Warnx(_("DEBUG resolve_soa: Forcing UDP for recursive forwarding (original protocol=%d)"), original_protocol);
 	  return recursive_fwd(t);
+	}
       return dnserror(t, DNS_RCODE_REFUSED, ERR_ZONE_NOT_FOUND);
     }
 
@@ -94,6 +99,11 @@ resolve_soa(TASK *t, datasection_t section, char *fqdn, int level) {
 #if DEBUG_ENABLED && DEBUG_RESOLVE
       DebugX("resolve", 1, _("%s: No SOA found for %s, trying recursive_fwd"), desctask(t), fqdn);
 #endif
+      /* Force UDP for upstream forwarding regardless of client protocol */
+      /* TCP responses will be handled if upstream returns truncated response */
+      int original_protocol = t->protocol;
+      t->protocol = SOCK_DGRAM;
+      Warnx(_("DEBUG resolve: Forcing UDP for recursive forwarding (original protocol=%d)"), original_protocol);
       return recursive_fwd(t);
     }
     /* DNS cache forwarding (MySQL-free slave servers with 'dns-cache-enabled') */
@@ -603,6 +613,10 @@ resolve(TASK *t, datasection_t section, dns_qtype_t qtype, char *fqdn, int level
           /* Fall back to traditional recursive forwarding if available */
           if (forward_recursive && t->hdr.rd) {
             Warnx(_("DEBUG: Falling back to recursive_fwd() for %s after DNS cache failure"), fqdn);
+            /* Force UDP for upstream forwarding regardless of client protocol */
+            int original_protocol = t->protocol;
+            t->protocol = SOCK_DGRAM;
+            Warnx(_("DEBUG resolve: Forcing UDP for upstream fallback (client protocol=%d)"), original_protocol);
             return recursive_fwd(t);
           }
           return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
@@ -612,6 +626,11 @@ resolve(TASK *t, datasection_t section, dns_qtype_t qtype, char *fqdn, int level
       /* Use traditional recursive forwarding if DNS cache is not enabled */
       if (forward_recursive && t->hdr.rd) {
         Warnx(_("DEBUG: Using recursive_fwd() for %s (DNS cache not enabled)"), fqdn);
+        /* Force UDP for upstream forwarding regardless of client protocol */
+        /* TCP responses will be handled if upstream returns truncated response */
+        int original_protocol = t->protocol;
+        t->protocol = SOCK_DGRAM;
+        Warnx(_("DEBUG resolve: Forcing UDP for upstream (client protocol=%d)"), original_protocol);
 	return recursive_fwd(t);
       }
       return dnserror(t, DNS_RCODE_REFUSED, ERR_ZONE_NOT_FOUND);

@@ -229,7 +229,7 @@ extern int mydns_rr_use_serial;
 
 /* Size ranges for various bits of DNS data */
 #define	DNS_MAXPACKETLEN_TCP		65536		/* Use 64k for TCP */
-#define	DNS_MAXPACKETLEN_UDP		512		/* RFC1035: "512 octets or less" */
+#define	DNS_MAXPACKETLEN_UDP		4096		/* EDNS0: Support larger UDP responses (4096 bytes) */
 #define	DNS_MAXNAMELEN			255		/* RFC1035: "255 octets or less" */
 #define	DNS_MAXESC			DNS_MAXNAMELEN + DNS_MAXNAMELEN + 1
 #define	DNS_MAXLABELLEN			63		/* RFC1035: "63 octets or less" */

@@ -33,6 +33,214 @@ static int recursive_tcp_fd = -1;
 static uint32_t tcp_recursion_running = 0;
 static uint32_t udp_recursion_running = 0;
 
+/* Recursive query ACL support (CWE-284 mitigation) */
+typedef struct _recursive_acl_entry {
+  int family;                     /* AF_INET or AF_INET6 */
+  uint32_t addr4;                 /* IPv4 address in network byte order */
+  uint32_t mask4;                 /* IPv4 netmask in network byte order */
+#if HAVE_IPV6
+  struct in6_addr addr6;          /* IPv6 address */
+  struct in6_addr mask6;          /* IPv6 netmask */
+#endif
+  struct _recursive_acl_entry *next;
+} recursive_acl_entry_t;
+
+static recursive_acl_entry_t *recursive_acl_list = NULL;
+
+/**************************************************************************************************
+	PARSE_RECURSIVE_ACL
+	Parse a single ACL entry in format "192.168.1.0/24" or "10.0.0.5"
+	Returns 1 on success, 0 on failure
+**************************************************************************************************/
+static int
+parse_recursive_acl(const char *acl_str, recursive_acl_entry_t *entry) {
+  char addr_str[256];
+  char *slash;
+  int prefix_len = -1;
+
+  if (!acl_str || !entry) return 0;
+
+  /* Copy to working buffer */
+  strncpy(addr_str, acl_str, sizeof(addr_str) - 1);
+  addr_str[sizeof(addr_str) - 1] = '\0';
+
+  /* Check for CIDR notation */
+  if ((slash = strchr(addr_str, '/'))) {
+    *slash = '\0';
+    prefix_len = atoi(slash + 1);
+  }
+
+  /* Try IPv4 first */
+  struct in_addr ipv4;
+  if (inet_pton(AF_INET, addr_str, &ipv4) == 1) {
+    entry->family = AF_INET;
+    entry->addr4 = ipv4.s_addr;
+
+    /* Calculate netmask */
+    if (prefix_len < 0) prefix_len = 32;  /* Default to /32 (single host) */
+    if (prefix_len < 0 || prefix_len > 32) return 0;
+
+    if (prefix_len == 0) {
+      entry->mask4 = 0;
+    } else {
+      entry->mask4 = htonl(~((1U << (32 - prefix_len)) - 1));
+    }
+    return 1;
+  }
+
+#if HAVE_IPV6
+  /* Try IPv6 */
+  struct in6_addr ipv6;
+  if (inet_pton(AF_INET6, addr_str, &ipv6) == 1) {
+    entry->family = AF_INET6;
+    memcpy(&entry->addr6, &ipv6, sizeof(struct in6_addr));
+
+    /* Calculate IPv6 netmask */
+    if (prefix_len < 0) prefix_len = 128;  /* Default to /128 (single host) */
+    if (prefix_len < 0 || prefix_len > 128) return 0;
+
+    memset(&entry->mask6, 0, sizeof(struct in6_addr));
+    for (int i = 0; i < 16; i++) {
+      if (prefix_len >= 8) {
+        entry->mask6.s6_addr[i] = 0xFF;
+        prefix_len -= 8;
+      } else if (prefix_len > 0) {
+        entry->mask6.s6_addr[i] = (0xFF << (8 - prefix_len));
+        prefix_len = 0;
+      }
+    }
+    return 1;
+  }
+#endif
+
+  return 0;
+}
+
+/**************************************************************************************************
+	LOAD_RECURSIVE_ACL
+	Load ACL list from comma-separated configuration string
+	Format: "127.0.0.0/8,10.0.0.0/8,192.168.0.0/16,172.16.0.0/12"
+**************************************************************************************************/
+void
+load_recursive_acl(const char *acl_config) {
+  char *config_copy, *token, *saveptr;
+  recursive_acl_entry_t *entry;
+
+  if (!acl_config || !*acl_config) return;
+
+  /* Free existing ACL list */
+  while (recursive_acl_list) {
+    entry = recursive_acl_list;
+    recursive_acl_list = entry->next;
+    free(entry);
+  }
+
+  config_copy = strdup(acl_config);
+  if (!config_copy) {
+    Warnx(_("Failed to allocate memory for recursive ACL configuration"));
+    return;
+  }
+
+  token = strtok_r(config_copy, ",", &saveptr);
+  while (token) {
+    /* Skip whitespace */
+    while (*token == ' ' || *token == '\t') token++;
+
+    entry = (recursive_acl_entry_t*)malloc(sizeof(recursive_acl_entry_t));
+    if (!entry) {
+      Warnx(_("Failed to allocate memory for recursive ACL entry"));
+      break;
+    }
+    memset(entry, 0, sizeof(recursive_acl_entry_t));
+
+    if (parse_recursive_acl(token, entry)) {
+      entry->next = recursive_acl_list;
+      recursive_acl_list = entry;
+#if DEBUG_ENABLED && DEBUG_RECURSIVE
+      DebugX("recursive", 1, _("Added recursive ACL entry: %s"), token);
+#endif
+    } else {
+      Warnx(_("Invalid recursive ACL entry: %s"), token);
+      free(entry);
+    }
+
+    token = strtok_r(NULL, ",", &saveptr);
+  }
+
+  free(config_copy);
+}
+
+/**************************************************************************************************
+	CHECK_RECURSIVE_ACL
+	Check if client IP is allowed to make recursive queries
+	Returns 1 if allowed, 0 if denied
+**************************************************************************************************/
+static int
+check_recursive_acl(TASK *t) {
+  recursive_acl_entry_t *entry;
+  char client_ip[INET6_ADDRSTRLEN];
+
+  /* If no ACL configured, allow all (default permissive behavior) */
+  if (!recursive_acl_list) {
+    return 1;
+  }
+
+  /* Check each ACL entry */
+  for (entry = recursive_acl_list; entry; entry = entry->next) {
+    if (entry->family == AF_INET && t->family == AF_INET) {
+      uint32_t client_addr = t->addr4.sin_addr.s_addr;
+
+      /* Apply netmask and compare */
+      if ((client_addr & entry->mask4) == (entry->addr4 & entry->mask4)) {
+        inet_ntop(AF_INET, &t->addr4.sin_addr, client_ip, sizeof(client_ip));
+#if DEBUG_ENABLED && DEBUG_RECURSIVE
+        DebugX("recursive", 1, _("Recursive query allowed for %s (matched ACL)"), client_ip);
+#endif
+        return 1;
+      }
+    }
+#if HAVE_IPV6
+    else if (entry->family == AF_INET6 && t->family == AF_INET6) {
+      struct in6_addr client_addr = t->addr6.sin6_addr;
+      int match = 1;
+
+      /* Apply netmask and compare */
+      for (int i = 0; i < 16; i++) {
+        if ((client_addr.s6_addr[i] & entry->mask6.s6_addr[i]) !=
+            (entry->addr6.s6_addr[i] & entry->mask6.s6_addr[i])) {
+          match = 0;
+          break;
+        }
+      }
+
+      if (match) {
+        inet_ntop(AF_INET6, &t->addr6.sin6_addr, client_ip, sizeof(client_ip));
+#if DEBUG_ENABLED && DEBUG_RECURSIVE
+        DebugX("recursive", 1, _("Recursive query allowed for %s (matched ACL)"), client_ip);
+#endif
+        return 1;
+      }
+    }
+#endif
+  }
+
+  /* No match - deny */
+  if (t->family == AF_INET) {
+    inet_ntop(AF_INET, &t->addr4.sin_addr, client_ip, sizeof(client_ip));
+  }
+#if HAVE_IPV6
+  else if (t->family == AF_INET6) {
+    inet_ntop(AF_INET6, &t->addr6.sin6_addr, client_ip, sizeof(client_ip));
+  }
+#endif
+  else {
+    strncpy(client_ip, "unknown", sizeof(client_ip));
+  }
+
+  Warnx(_("Recursive query DENIED for %s (not in ACL)"), client_ip);
+  return 0;
+}
+
 typedef struct _recursive_fwd_write_t {
   char		*query;
   uint16_t	querylength;
@@ -1130,6 +1338,11 @@ __recursive_fwd_tcp(TASK *t) {
 
 taskexec_t
 recursive_fwd(TASK *t) {
+
+  /* Check recursive ACL (CWE-284 mitigation: prevents open resolver abuse) */
+  if (!check_recursive_acl(t)) {
+    return dnserror(t, DNS_RCODE_REFUSED, ERR_NO_AUTHORITY);
+  }
 
   switch (t->protocol) {
 

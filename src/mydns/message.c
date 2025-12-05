@@ -64,7 +64,7 @@ dns_make_message(TASK * t, uint16_t id, uint8_t opcode, dns_qtype_t qtype,
   DNS_PUT16(dest, 1);						/* QDCOUNT */
   DNS_PUT16(dest, 0);						/* ANCOUNT */
   DNS_PUT16(dest, 0);						/* NSCOUNT */
-  DNS_PUT16(dest, 0);						/* ARCOUNT */
+  DNS_PUT16(dest, 1);						/* ARCOUNT (1 for EDNS0 OPT record) */
 
   for (mark = dest++, c = name; *c; c++) {			/* QNAME */
     if ((c - name) > DNS_MAXNAMELEN) {
@@ -96,6 +96,13 @@ dns_make_message(TASK * t, uint16_t id, uint8_t opcode, dns_qtype_t qtype,
   }
   DNS_PUT16(dest, (uint16_t)qtype);				/* QTYPE */
   DNS_PUT16(dest, DNS_CLASS_IN);				/* QCLASS */
+
+  /* Add EDNS0 OPT record (RFC 2671) to support UDP packets larger than 512 bytes */
+  *dest++ = 0;							/* NAME: root domain (.) */
+  DNS_PUT16(dest, 41);						/* TYPE: OPT (41) */
+  DNS_PUT16(dest, DNS_MAXPACKETLEN_UDP);			/* CLASS: UDP payload size (4096) */
+  DNS_PUT32(dest, 0);						/* TTL: Extended RCODE and flags */
+  DNS_PUT16(dest, 0);						/* RDLENGTH: 0 (no options) */
 
   if (length) *length = dest - message;
 

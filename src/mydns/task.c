@@ -23,6 +23,11 @@
 /* Make this nonzero to enable debugging for this source file */
 #define	DEBUG_TASK	1
 
+/* For random transaction ID generation (RFC 5452) */
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 
 #define MAXTASKS		(USHRT_MAX + 1)
 #define TASKVECSZ		(MAXTASKS/BITSPERBYTE)
@@ -68,6 +73,42 @@ static uint32_t		taskvec_masks[] = {
 static uint32_t		internal_id = 0;
 static uint32_t		*taskvec = NULL;
 static int32_t		active_tasks = 0;
+
+/**************************************************************************************************
+	GET_RANDOM_TRANSACTION_ID
+	Generate cryptographically secure random transaction ID (RFC 5452 - DNS cache poisoning protection)
+	Uses /dev/urandom for unpredictable transaction IDs to prevent cache poisoning attacks
+**************************************************************************************************/
+static uint32_t
+get_random_transaction_id(void) {
+  uint32_t random_id;
+  int fd;
+  ssize_t bytes_read;
+
+  /* Try to read from /dev/urandom for cryptographically secure random */
+  fd = open("/dev/urandom", O_RDONLY);
+  if (fd < 0) {
+    /* Fallback to using time-based randomization if /dev/urandom fails */
+    Warn(_("Failed to open /dev/urandom for random transaction ID, using fallback"));
+    srandom((unsigned int)(time(NULL) ^ getpid()));
+    random_id = (uint32_t)random();
+    return random_id % MAXTASKS;
+  }
+
+  bytes_read = read(fd, &random_id, sizeof(random_id));
+  close(fd);
+
+  if (bytes_read != sizeof(random_id)) {
+    /* Fallback if read failed */
+    Warn(_("Failed to read from /dev/urandom, using fallback"));
+    srandom((unsigned int)(time(NULL) ^ getpid()));
+    random_id = (uint32_t)random();
+  }
+
+  /* Constrain to valid task ID range */
+  return random_id % MAXTASKS;
+}
+/*--- get_random_transaction_id() ---------------------------------------------------------------*/
 
 char *
 task_exec_name(taskexec_t rv) {
@@ -276,6 +317,16 @@ task_new(TASK *t, unsigned char *data, size_t len) {
 
   DNS_GET16(t->qtype, src);
 
+  /* RFC 8482: Restrict ANY queries to prevent DNS amplification attacks */
+  if (t->qtype == DNS_QTYPE_ANY) {
+    /* ANY queries are frequently used in DNS amplification DDoS attacks
+     * Return REFUSED to prevent server abuse as amplification reflector
+     * Legitimate clients should query for specific record types */
+    Warnx(_("%s: REFUSED query - ANY queries blocked (RFC 8482 / amplification attack prevention)"), desctask(t));
+    return formerr(t, DNS_RCODE_REFUSED, ERR_UNSUPPORTED_OPCODE,
+                   _("ANY queries are not supported (use specific record types)"));
+  }
+
   /* If this request is TCP and TCP is disabled, refuse the request */
 //  if (t->protocol == SOCK_STREAM && !tcp_enabled && (t->qtype != DNS_QTYPE_AXFR || !axfr_enabled)) {
   if (t->protocol == SOCK_STREAM && !tcp_enabled && (t->qtype !=DNS_QTYPE_AXFR || !axfr_enabled) && (t->qtype != DNS_QTYPE_IXFR || !axfr_enabled)) {
@@ -458,20 +509,25 @@ _task_init(
     TASKVEC_ZERO(taskvec);
   }
 
+  /* RFC 5452: Use cryptographically secure random transaction IDs to prevent cache poisoning */
   while (1) {
-    id = internal_id++;
-    if (internal_id >= MAXTASKS) {
-      if (wrap_round) {
-	Notice(_("internal_id wrapped around twice while trying to find an empty slot"));
-	return NULL;
-      }
-      internal_id = 0;
-      wrap_round = 1;
-    }
+    id = get_random_transaction_id();  /* Generate random ID instead of sequential */
+
+    /* Check if this random ID is already in use */
     taskvec_index = id >> 5;
     taskvec_mask = taskvec_masks[id & 0x1ff];
     if (!taskvec[taskvec_index]
-	|| (taskvec[taskvec_index] & taskvec_mask) == 0) break;
+	|| (taskvec[taskvec_index] & taskvec_mask) == 0) {
+      /* Found unused random ID */
+      break;
+    }
+
+    /* Random ID collision - try again (very rare with 65536 ID space) */
+    if (++wrap_round > MAXTASKS * 2) {
+      /* Extremely unlikely: couldn't find free ID after many attempts */
+      Notice(_("Unable to find free transaction ID after %d attempts"), MAXTASKS * 2);
+      return NULL;
+    }
   }
   taskvec[taskvec_index] |= taskvec_mask;
 
@@ -1064,7 +1120,13 @@ task_process_recursive(TASK *t, int rfd, int wfd, int efd) {
     case NEED_RECURSIVE_FWD_CONNECTED:
       /* Re-check if master is ready for this waiting query */
       Warnx("DEBUG task_process: NEED_RECURSIVE_FWD_CONNECTED, calling recursive_fwd() for %s", desctask(t));
-      res = recursive_fwd(t);
+      /* Force UDP for upstream forwarding regardless of client protocol */
+      {
+        int original_protocol = t->protocol;
+        t->protocol = SOCK_DGRAM;
+        Warnx("DEBUG task: Forcing UDP for upstream (client protocol=%d)", original_protocol);
+        res = recursive_fwd(t);
+      }
       if (res == TASK_FAILED) return TASK_FAILED;
       if (res == TASK_CONTINUE) return TASK_CONTINUE;
       if (res == TASK_EXECUTED) return TASK_EXECUTED;

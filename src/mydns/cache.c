@@ -834,9 +834,8 @@ add_reply_to_cache(TASK *t) {
     return;
   }
 
-  /* Don't cache replies from recursive forwarder */
-  if (t->forwarded)
-    return;
+  /* Cache replies from recursive forwarder (improves performance for repeated queries) */
+  /* Removed: if (t->forwarded) return; - now caching recursive queries */
 
 #if STATUS_ENABLED
   /* Don't cache status requests */
