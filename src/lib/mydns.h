@@ -293,6 +293,7 @@ typedef enum _task_error_t					/* Common errors */
 	ERR_FWD_RECURSIVE,					/* "Recursive query forwarding error" */
 	ERR_NO_UPDATE,						/* "UPDATE denied" */
 	ERR_PREREQUISITE_FAILED,				/* "UPDATE prerequisite failed" */
+	ERR_RATE_LIMITED					/* "Rate limit exceeded" */
 
 } task_error_t;
 

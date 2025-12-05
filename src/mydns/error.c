@@ -80,6 +80,7 @@ err_reason_str(TASK *t, task_error_t reason) {
   case ERR_FWD_RECURSIVE: 		return ((char *)_("Recursive_query_forwarding_error"));
   case ERR_NO_UPDATE: 			return ((char *)_("UPDATE_denied"));
   case ERR_PREREQUISITE_FAILED: 	return ((char *)_("UPDATE_prerequisite_failed"));
+  case ERR_RATE_LIMITED: 		return ((char *)_("Rate_limit_exceeded"));
   }
   return ((char *)_("Unknown"));
 }

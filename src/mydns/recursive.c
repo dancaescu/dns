@@ -47,6 +47,28 @@ typedef struct _recursive_acl_entry {
 
 static recursive_acl_entry_t *recursive_acl_list = NULL;
 
+/* Rate limiting for recursive queries (DNS amplification attack mitigation) */
+#define RATE_LIMIT_WINDOW_SECONDS   60    /* Time window for rate limiting */
+#define RATE_LIMIT_MAX_QUERIES      100   /* Max queries per window per IP */
+#define RATE_LIMIT_CLEANUP_INTERVAL 300   /* Clean up old entries every 5 minutes */
+
+typedef struct _rate_limit_entry {
+  int family;                      /* AF_INET or AF_INET6 */
+  union {
+    struct in_addr addr4;          /* IPv4 address */
+#if HAVE_IPV6
+    struct in6_addr addr6;         /* IPv6 address */
+#endif
+  } addr;
+  time_t window_start;             /* Start of current time window */
+  uint32_t query_count;            /* Number of queries in current window */
+  time_t last_seen;                /* Last time this IP was seen */
+  struct _rate_limit_entry *next;
+} rate_limit_entry_t;
+
+static rate_limit_entry_t *rate_limit_table = NULL;
+static time_t last_rate_limit_cleanup = 0;
+
 /**************************************************************************************************
 	PARSE_RECURSIVE_ACL
 	Parse a single ACL entry in format "192.168.1.0/24" or "10.0.0.5"
@@ -248,6 +270,154 @@ typedef struct _recursive_fwd_write_t {
   uint16_t	querylenwritten;
   int		retries;
 } recursive_fwd_write_t;
+
+/**************************************************************************************************
+	CLEANUP_RATE_LIMIT_TABLE
+	Clean up old entries from the rate limit table to prevent memory growth
+**************************************************************************************************/
+static void
+cleanup_rate_limit_table(void) {
+  rate_limit_entry_t *entry = rate_limit_table;
+  rate_limit_entry_t *prev = NULL;
+  rate_limit_entry_t *next;
+  time_t now = time(NULL);
+  int removed_count = 0;
+
+  while (entry) {
+    next = entry->next;
+
+    /* Remove entries that haven't been seen for over 2 time windows */
+    if ((now - entry->last_seen) > (2 * RATE_LIMIT_WINDOW_SECONDS)) {
+      if (prev) {
+        prev->next = next;
+      } else {
+        rate_limit_table = next;
+      }
+      RELEASE(entry);
+      removed_count++;
+      entry = next;
+    } else {
+      prev = entry;
+      entry = next;
+    }
+  }
+
+  if (removed_count > 0) {
+#if DEBUG_ENABLED && DEBUG_RECURSIVE
+    DebugX("recursive", 2, _("Rate limit cleanup: removed %d old entries"), removed_count);
+#endif
+  }
+}
+
+/**************************************************************************************************
+	CHECK_RATE_LIMIT
+	Check if a client has exceeded the rate limit for recursive queries
+	Returns 1 if allowed, 0 if rate limited
+**************************************************************************************************/
+static int
+check_rate_limit(TASK *t) {
+  rate_limit_entry_t *entry;
+  time_t now = time(NULL);
+  int found = 0;
+  char client_ip[INET6_ADDRSTRLEN];
+
+  /* Periodic cleanup of old entries */
+  if ((now - last_rate_limit_cleanup) >= RATE_LIMIT_CLEANUP_INTERVAL) {
+    cleanup_rate_limit_table();
+    last_rate_limit_cleanup = now;
+  }
+
+  /* Search for existing entry */
+  for (entry = rate_limit_table; entry; entry = entry->next) {
+    if (entry->family == t->family) {
+      if (t->family == AF_INET) {
+        if (memcmp(&entry->addr.addr4, &t->addr4.sin_addr, sizeof(struct in_addr)) == 0) {
+          found = 1;
+          break;
+        }
+      }
+#if HAVE_IPV6
+      else if (t->family == AF_INET6) {
+        if (memcmp(&entry->addr.addr6, &t->addr6.sin6_addr, sizeof(struct in6_addr)) == 0) {
+          found = 1;
+          break;
+        }
+      }
+#endif
+    }
+  }
+
+  /* If not found, create new entry */
+  if (!found) {
+    entry = ALLOCATE(sizeof(rate_limit_entry_t), rate_limit_entry_t);
+    entry->family = t->family;
+
+    if (t->family == AF_INET) {
+      memcpy(&entry->addr.addr4, &t->addr4.sin_addr, sizeof(struct in_addr));
+    }
+#if HAVE_IPV6
+    else if (t->family == AF_INET6) {
+      memcpy(&entry->addr.addr6, &t->addr6.sin6_addr, sizeof(struct in6_addr));
+    }
+#endif
+
+    entry->window_start = now;
+    entry->query_count = 0;
+    entry->last_seen = now;
+    entry->next = rate_limit_table;
+    rate_limit_table = entry;
+  }
+
+  /* Update entry */
+  entry->last_seen = now;
+
+  /* Check if we need to reset the window */
+  if ((now - entry->window_start) >= RATE_LIMIT_WINDOW_SECONDS) {
+    entry->window_start = now;
+    entry->query_count = 0;
+  }
+
+  /* Increment query count and check limit */
+  entry->query_count++;
+
+  if (entry->query_count > RATE_LIMIT_MAX_QUERIES) {
+    /* Rate limit exceeded */
+    if (t->family == AF_INET) {
+      inet_ntop(AF_INET, &t->addr4.sin_addr, client_ip, sizeof(client_ip));
+    }
+#if HAVE_IPV6
+    else if (t->family == AF_INET6) {
+      inet_ntop(AF_INET6, &t->addr6.sin6_addr, client_ip, sizeof(client_ip));
+    }
+#endif
+    else {
+      strncpy(client_ip, "unknown", sizeof(client_ip));
+    }
+
+    Warnx(_("Rate limit exceeded for %s (query %u in %d seconds)"),
+          client_ip, entry->query_count, RATE_LIMIT_WINDOW_SECONDS);
+    return 0;  /* Deny */
+  }
+
+#if DEBUG_ENABLED && DEBUG_RECURSIVE
+  if (t->family == AF_INET) {
+    inet_ntop(AF_INET, &t->addr4.sin_addr, client_ip, sizeof(client_ip));
+  }
+#if HAVE_IPV6
+  else if (t->family == AF_INET6) {
+    inet_ntop(AF_INET6, &t->addr6.sin6_addr, client_ip, sizeof(client_ip));
+  }
+#endif
+  else {
+    strncpy(client_ip, "unknown", sizeof(client_ip));
+  }
+
+  DebugX("recursive", 3, _("Rate limit check for %s: %u/%u queries in window"),
+         client_ip, entry->query_count, RATE_LIMIT_MAX_QUERIES);
+#endif
+
+  return 1;  /* Allow */
+}
 
 /**************************************************************************************************
 	GET_NEXT_HEALTHY_RECURSIVE_SERVER
@@ -831,6 +1001,218 @@ __recursive_fwd_write_tcp(TASK *t, void *data) {
   }
 }
 
+/**************************************************************************************************
+	DNS_DECODE_NAME
+	Decode a DNS name from wire format to string format.
+	Handles DNS name compression pointers (RFC 1035 section 4.1.4).
+**************************************************************************************************/
+static int
+dns_decode_name(const char *message, size_t message_len, size_t offset,
+                char *name, size_t name_size) {
+  const uchar *msg = (const uchar*)message;
+  size_t pos = offset;
+  size_t name_pos = 0;
+  int jumped = 0;
+  size_t jump_offset = 0;
+  int labels = 0;
+
+  if (!message || !name || name_size < 1) return -1;
+
+  name[0] = '\0';
+
+  while (pos < message_len && labels < 127) {  /* DNS name limit */
+    uchar len = msg[pos];
+
+    /* Check for compression pointer */
+    if ((len & 0xC0) == 0xC0) {
+      if (pos + 1 >= message_len) return -1;
+
+      if (!jumped) {
+        jump_offset = pos + 2;
+        jumped = 1;
+      }
+
+      size_t pointer = ((len & 0x3F) << 8) | msg[pos + 1];
+      if (pointer >= message_len) return -1;
+      pos = pointer;
+      continue;
+    }
+
+    /* End of name */
+    if (len == 0) {
+      if (name_pos > 0 && name_pos < name_size) {
+        name[name_pos - 1] = '\0';  /* Remove trailing dot */
+      } else if (name_pos < name_size) {
+        name[name_pos] = '\0';
+      }
+
+      if (jumped) {
+        return jump_offset - offset;
+      } else {
+        return pos + 1 - offset;
+      }
+    }
+
+    /* Check label length validity */
+    if (len > 63) return -1;
+    if (pos + len >= message_len) return -1;
+
+    /* Copy label */
+    pos++;
+    for (int i = 0; i < len && name_pos < name_size - 1; i++) {
+      name[name_pos++] = msg[pos++];
+    }
+
+    /* Add dot separator */
+    if (name_pos < name_size - 1) {
+      name[name_pos++] = '.';
+    }
+
+    labels++;
+  }
+
+  return -1;  /* Name too long or invalid */
+}
+
+/**************************************************************************************************
+	CHECK_BAILIWICK
+	Validate that a DNS name is within the proper authority zone (bailiwick).
+	This prevents cache poisoning where malicious servers inject out-of-zone records.
+	CWE-350: Reliance on Reverse DNS Resolution for a Security-Critical Action
+**************************************************************************************************/
+static int
+check_bailiwick(const char *record_name, const char *zone_name) {
+  int rlen, zlen;
+
+  if (!record_name || !zone_name) return 0;
+
+  rlen = strlen(record_name);
+  zlen = strlen(zone_name);
+
+  /* Record must be in the zone or a subdomain of it */
+  if (rlen < zlen) return 0;
+
+  /* Check if record ends with zone name (case insensitive) */
+  if (strcasecmp(record_name + (rlen - zlen), zone_name) != 0) {
+    return 0;
+  }
+
+  /* If record is longer, ensure it's a subdomain (has a dot separator) */
+  if (rlen > zlen && record_name[rlen - zlen - 1] != '.') {
+    return 0;
+  }
+
+  return 1;  /* Within bailiwick */
+}
+
+/**************************************************************************************************
+	VALIDATE_DNS_RESPONSE
+	Perform bailiwick checking on DNS response to prevent cache poisoning.
+	Parse response and validate that all records are within proper authority zones.
+**************************************************************************************************/
+static int
+validate_dns_response(TASK *t, char *reply, int replylen) {
+  uchar *ptr, *end;
+  uint16_t qdcount, ancount, nscount, arcount;
+  char question_name[256];
+  char record_name[256];
+  int i, namelen;
+  uint16_t type, class, rdlen;
+  uint32_t ttl;
+
+  if (replylen < DNS_HEADERSIZE) return 0;
+
+  ptr = (uchar*)reply + SIZE16;  /* Skip transaction ID */
+  ptr += SIZE16;  /* Skip flags */
+
+  DNS_GET16(qdcount, ptr);
+  DNS_GET16(ancount, ptr);
+  DNS_GET16(nscount, ptr);
+  DNS_GET16(arcount, ptr);
+
+  end = (uchar*)reply + replylen;
+
+  /* Parse question section to get the queried domain */
+  if (qdcount > 0) {
+    namelen = dns_decode_name(reply, replylen, ptr - (uchar*)reply, question_name, sizeof(question_name));
+    if (namelen < 0) return 0;
+    ptr += namelen;
+    ptr += 2 * SIZE16;  /* Skip QTYPE and QCLASS */
+  } else {
+    return 0;  /* No question section - invalid */
+  }
+
+  /* Validate answer records - must be related to the question */
+  for (i = 0; i < ancount && ptr < end; i++) {
+    namelen = dns_decode_name(reply, replylen, ptr - (uchar*)reply, record_name, sizeof(record_name));
+    if (namelen < 0) return 0;
+    ptr += namelen;
+
+    if (ptr + 10 > end) return 0;
+    DNS_GET16(type, ptr);
+    DNS_GET16(class, ptr);
+    DNS_GET32(ttl, ptr);
+    DNS_GET16(rdlen, ptr);
+
+    if (ptr + rdlen > end) return 0;
+
+    /* For CNAME and NS records in answers, validate bailiwick */
+    if (type == DNS_QTYPE_NS || type == DNS_QTYPE_CNAME) {
+      char target[256];
+      int tlen = dns_decode_name(reply, replylen, ptr - (uchar*)reply, target, sizeof(target));
+      if (tlen < 0) return 0;
+
+      /* NS and CNAME targets should be within reasonable scope */
+      if (!check_bailiwick(record_name, question_name)) {
+        Warnx(_("bailiwick check failed: answer record %s not within zone %s"),
+              record_name, question_name);
+        return 0;
+      }
+    }
+
+    ptr += rdlen;
+  }
+
+  /* Skip authority section for now */
+  for (i = 0; i < nscount && ptr < end; i++) {
+    namelen = dns_decode_name(reply, replylen, ptr - (uchar*)reply, record_name, sizeof(record_name));
+    if (namelen < 0) return 0;
+    ptr += namelen;
+
+    if (ptr + 10 > end) return 0;
+    ptr += 2 * SIZE16;  /* Type and Class */
+    ptr += SIZE32;      /* TTL */
+    DNS_GET16(rdlen, ptr);
+    ptr += rdlen;
+  }
+
+  /* Validate additional records - these are most dangerous for cache poisoning */
+  for (i = 0; i < arcount && ptr < end; i++) {
+    namelen = dns_decode_name(reply, replylen, ptr - (uchar*)reply, record_name, sizeof(record_name));
+    if (namelen < 0) return 0;
+    ptr += namelen;
+
+    if (ptr + 10 > end) return 0;
+    DNS_GET16(type, ptr);
+    DNS_GET16(class, ptr);
+    DNS_GET32(ttl, ptr);
+    DNS_GET16(rdlen, ptr);
+
+    /* Additional A/AAAA records must be within the zone being queried */
+    if (type == DNS_QTYPE_A || type == DNS_QTYPE_AAAA) {
+      if (!check_bailiwick(record_name, question_name)) {
+        Warnx(_("bailiwick check failed: additional record %s (type %d) not within zone %s - possible cache poisoning attempt!"),
+              record_name, type, question_name);
+        return 0;
+      }
+    }
+
+    ptr += rdlen;
+  }
+
+  return 1;  /* All checks passed */
+}
+
 static int
 __recursive_fwd_read(TASK *t, char *reply, int replylen) {
   uchar		*r = NULL;
@@ -838,6 +1220,14 @@ __recursive_fwd_read(TASK *t, char *reply, int replylen) {
   DNS_HEADER	hdr;
 
   memset(&hdr, 0, sizeof(hdr));
+
+  /* Validate DNS response for bailiwick (CWE-350 mitigation) */
+  if (!validate_dns_response(t, reply, replylen)) {
+    Warn(_("DNS response validation failed - possible cache poisoning attempt from %s"),
+         recursive_fwd_server);
+    /* Don't cache or use this potentially malicious response */
+    return -1;
+  }
 
   /* Copy reply into task */
   t->reply = ALLOCATE(replylen, char[]);
@@ -1338,10 +1728,28 @@ __recursive_fwd_tcp(TASK *t) {
 
 taskexec_t
 recursive_fwd(TASK *t) {
+  static int acl_loaded = 0;
+
+  /* Load recursive ACL on first use (CWE-284 mitigation) */
+  if (!acl_loaded) {
+    const char *acl_val = conf_get(&Conf, "recursive-acl", NULL);
+    if (acl_val && *acl_val) {
+      load_recursive_acl(acl_val);
+      Warnx(_("Recursive ACL loaded: %s"), acl_val);
+    } else {
+      Warnx(_("No recursive ACL configured - allowing all clients (open resolver)"));
+    }
+    acl_loaded = 1;
+  }
 
   /* Check recursive ACL (CWE-284 mitigation: prevents open resolver abuse) */
   if (!check_recursive_acl(t)) {
     return dnserror(t, DNS_RCODE_REFUSED, ERR_NO_AUTHORITY);
+  }
+
+  /* Check rate limit (DNS amplification attack mitigation) */
+  if (!check_rate_limit(t)) {
+    return dnserror(t, DNS_RCODE_REFUSED, ERR_RATE_LIMITED);
   }
 
   switch (t->protocol) {

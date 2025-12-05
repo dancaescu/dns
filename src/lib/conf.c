@@ -616,13 +616,12 @@ conf_set_recursive(void) {
   Warnx("DEBUG: conf_set_recursive() returning normally (timeout=%u, connect_timeout=%u, retries=%u)",
         recursion_timeout, recursion_connect_timeout, recursion_retries);
 
-  /* Load recursive ACL (CWE-284 mitigation) */
+  /* Recursive ACL configuration note (CWE-284 mitigation) */
   const char *acl_val = conf_get(&Conf, "recursive-acl", NULL);
   if (acl_val && *acl_val) {
-    load_recursive_acl(acl_val);
-    Warnx(_("Recursive ACL loaded: %s"), acl_val);
+    Warnx(_("Recursive ACL configured: %s (will be loaded by recursive module)"), acl_val);
   } else {
-    Warnx(_("No recursive ACL configured - allowing all clients (open resolver)"));
+    Warnx(_("No recursive ACL configured - allowing all clients (open resolver warning)"));
   }
 
 }

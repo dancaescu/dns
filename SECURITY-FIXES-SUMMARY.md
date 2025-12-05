@@ -42,6 +42,20 @@ This document summarizes the comprehensive security fixes and improvements imple
 - Default configuration allows: 127.0.0.0/8, 10.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12
 - Prevents DNS amplification attacks and resolver abuse
 
+### 1.4 DNS Query Rate Limiting (CWE-770, CWE-400)
+**Files Modified:**
+- `src/mydns/recursive.c`
+- `src/lib/mydns.h`
+- `src/mydns/error.c`
+
+**Implementation:**
+- Added per-IP rate limiting for recursive queries
+- Limits: 100 queries per 60 seconds per IP address
+- Automatic cleanup of old entries every 5 minutes
+- Returns DNS REFUSED when rate limit exceeded
+- Provides protection against DNS amplification attacks
+- Prevents resource exhaustion from abusive clients
+
 ## 2. Protocol Enhancements
 
 ### 2.1 Round-Robin Recursive Forwarding
@@ -125,14 +139,16 @@ dns-cache-ttl-max = 43200
 - `DNS-SECURITY-AUDIT.md` - Complete security audit findings
 - `BUGFIX-RECURSIVE-DNS.md` - Recursive DNS troubleshooting guide
 - `EDNS0-IMPLEMENTATION.md` - EDNS0 implementation details
+- `DNS-RATE-LIMITING.md` - Rate limiting implementation and configuration
 - `SECURITY-FIXES-SUMMARY.md` - This summary document
 
 ### 5.2 Key Security Improvements Summary
 1. **Eliminated buffer overflow vulnerabilities** - All unsafe string operations fixed
 2. **Prevented DNS cache poisoning** - Bailiwick checking and enhanced entropy
 3. **Blocked open resolver abuse** - ACL-based recursive query restrictions
-4. **Enhanced protocol support** - EDNS0 for modern DNS features
-5. **Improved reliability** - Round-robin forwarding with health checks
+4. **Rate limiting protection** - Per-IP query limits prevent amplification attacks
+5. **Enhanced protocol support** - EDNS0 for modern DNS features
+6. **Improved reliability** - Round-robin forwarding with health checks
 
 ## 6. Compliance and Standards
 
@@ -141,6 +157,8 @@ dns-cache-ttl-max = 43200
 - CWE-284: Improper Access Control
 - CWE-350: Reliance on Reverse DNS Resolution for Security
 - CWE-346: Origin Validation Error
+- CWE-770: Allocation of Resources Without Limits or Throttling
+- CWE-400: Uncontrolled Resource Consumption
 
 ### 6.2 RFC Compliance
 - RFC 6891: EDNS0 Support
